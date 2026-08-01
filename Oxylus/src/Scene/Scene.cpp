@@ -413,11 +413,6 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
 
   self.component_db.import_module(self.world.import<CoreComponentsModule>());
 
-  if (App::has_mod<Renderer>()) {
-    auto& renderer = App::mod<Renderer>();
-    self.renderer_instance = renderer.new_instance(self);
-  }
-
   auto& physics = App::mod<Physics>();
   self.physics_system = physics.new_system();
   self.physics_debug_renderer = physics.new_debug_renderer(self.debug_draw_list);
@@ -1166,86 +1161,14 @@ auto Scene::runtime_update(this Scene& self, const Timestep& delta_time) -> void
   self.extractor.extract(self, self.view_requests, self.frame_snapshot);
   self.frame_snapshot.delta_time = static_cast<f32>(delta_time.get_seconds());
 
-  if (self.renderer_instance) {
-    auto& asset_man = App::mod<AssetManager>();
-    auto meshlet_instance_visibility_offset = 0_u32;
-    auto max_meshlet_instance_count = 0_u32;
-    auto gpu_meshes = std::vector<GPU::Mesh>();
-    auto gpu_mesh_instances = std::vector<GPU::MeshInstance>();
-    auto mesh_slot_to_gpu_index = ankerl::unordered_dense::map<u32, u32>();
-
-    if (self.meshes_dirty) {
-      auto mesh_instances = self.mesh_instances.slots_unsafe();
-      auto unique_mesh_to_gpu_mesh = ankerl::unordered_dense::map<std::pair<UUID, usize>, usize>();
-
-      self.mesh_instances.for_each_active([&](usize index, const MeshInstance& mesh_instance) {
-        const auto model = asset_man.get_model(mesh_instance.model_uuid);
-        const auto& mesh = model->gpu_meshes[mesh_instance.mesh_node_index];
-        const auto material_asset = asset_man.get_asset(mesh_instance.material_uuid);
-        const auto material_id = material_asset ? material_asset->material_id
-                                                : asset_man.get_null_material()->material_id;
-
-        auto unique_mesh = std::pair(mesh_instance.model_uuid, mesh_instance.mesh_node_index);
-        auto mesh_index = 0_u32;
-        if (auto it = unique_mesh_to_gpu_mesh.find(unique_mesh); it != unique_mesh_to_gpu_mesh.end()) {
-          mesh_index = it->second;
-        } else {
-          mesh_index = static_cast<u32>(gpu_meshes.size());
-          gpu_meshes.emplace_back(mesh);
-          unique_mesh_to_gpu_mesh.emplace(unique_mesh, mesh_index);
-        }
-
-        auto lod0_index = 0;
-        const auto lod0_meshlet_count = model->lod0_meshlet_counts[mesh_instance.mesh_node_index];
-
-        auto& gpu_mesh_instance = gpu_mesh_instances.emplace_back();
-        gpu_mesh_instance.mesh_index = mesh_index;
-        gpu_mesh_instance.lod_index = lod0_index;
-        gpu_mesh_instance.material_index = SlotMap_decode_id(material_id).index;
-        gpu_mesh_instance.transform_index = SlotMap_decode_id(mesh_instance.transform_id).index;
-        gpu_mesh_instance.meshlet_instance_visibility_offset = meshlet_instance_visibility_offset;
-
-        mesh_slot_to_gpu_index[static_cast<u32>(index)] = static_cast<u32>(gpu_mesh_instances.size() - 1);
-
-        meshlet_instance_visibility_offset += lod0_meshlet_count;
-        max_meshlet_instance_count += lod0_meshlet_count;
-      });
-
-      self.gpu_mesh_instance_count = gpu_mesh_instances.size();
-      self.max_meshlet_instance_count = max_meshlet_instance_count;
-    } else if (!self.dirty_mesh_instances.empty()) {
-      u32 gpu_idx = 0;
-      self.mesh_instances.for_each_active([&](usize slot_index, const MeshInstance&) {
-        mesh_slot_to_gpu_index[static_cast<u32>(slot_index)] = gpu_idx++;
-      });
-    }
-
-    auto dirty_mesh_instance_gpu_indices = std::vector<u32>();
-    dirty_mesh_instance_gpu_indices.reserve(self.dirty_mesh_instances.size());
-    for (const auto mesh_instance_id : self.dirty_mesh_instances) {
-      const auto slot_index = SlotMap_decode_id(mesh_instance_id).index;
-      if (const auto it = mesh_slot_to_gpu_index.find(slot_index); it != mesh_slot_to_gpu_index.end()) {
-        dirty_mesh_instance_gpu_indices.push_back(it->second);
-      }
-    }
-
-    auto update_info = RendererInstanceUpdateInfo{
-      .mesh_instance_count = self.gpu_mesh_instance_count,
-      .max_meshlet_instance_count = self.max_meshlet_instance_count,
-      .dirty_transform_ids = self.dirty_transforms,
-      .gpu_transforms = self.transforms.slots_unsafe(),
-      .gpu_meshes = gpu_meshes,
-      .gpu_mesh_instances = gpu_mesh_instances,
-      .dirty_mesh_instance_indices = dirty_mesh_instance_gpu_indices,
-    };
-    self.renderer_instance->prepare(update_info, self.frame_snapshot, self.renderer_cvar);
-
-    for (const auto transform_id : self.dirty_transforms) {
-      if (auto* gpu_transform = self.transforms.slot(transform_id)) {
-        gpu_transform->previous_world = gpu_transform->world;
-      }
+  // Motion vectors: this frame's world becomes next frame's previous. Done after the extract, so
+  // the snapshot still carries both.
+  for (const auto transform_id : self.dirty_transforms) {
+    if (auto* gpu_transform = self.transforms.slot(transform_id)) {
+      gpu_transform->previous_world = gpu_transform->world;
     }
   }
+
   self.dirty_transforms.clear();
   self.dirty_mesh_instances.clear();
   self.meshes_dirty = false;
@@ -1890,17 +1813,6 @@ void Scene::create_character_controller(
 
   auto ch_body = physics_system->GetBodyLockInterface().TryGetBody(ch->GetBodyID());
   ch_body->SetUserData(static_cast<u64>(entity.id()));
-}
-
-auto Scene::render(
-  this Scene& self, vuk::Value<vuk::ImageAttachment>&& dst_attachment, const Renderer::RenderInfo& render_info
-) -> vuk::Value<vuk::ImageAttachment> {
-  ZoneScoped;
-
-  auto ri = self.get_renderer_instance();
-  OX_CHECK_NULL(ri);
-
-  return ri->render(std::move(dst_attachment), render_info, self.renderer_cvar);
 }
 
 auto Scene::entity_to_json(JsonWriter& writer, flecs::entity e) -> void {

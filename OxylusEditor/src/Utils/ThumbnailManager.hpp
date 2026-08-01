@@ -8,6 +8,7 @@
 #include "Asset/Texture.hpp"
 #include "Core/Types.hpp"
 #include "Core/UUID.hpp"
+#include "Render/RenderScene.hpp"
 
 namespace ox {
 class ThumbnailManager {
@@ -25,6 +26,10 @@ private:
     UUID model_uuid;
     std::filesystem::path expected_png;
   };
+
+  // The off-screen scene renders through its own instance, like any other view.
+
+  RenderScene thumbnail_render_scene = {};
 
   std::filesystem::path cache_dir = {};
 

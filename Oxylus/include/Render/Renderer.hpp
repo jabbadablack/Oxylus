@@ -28,7 +28,7 @@ public:
   auto deinit(this Renderer& self) -> std::expected<void, std::string>;
   auto update(this Renderer& self, const Timestep& delta_time) -> void;
 
-  auto new_instance(Scene& scene) -> std::unique_ptr<RendererInstance>;
+  auto new_instance() -> std::unique_ptr<RendererInstance>;
 
   auto get_materials_buffer(this Renderer& self) -> vuk::Value<vuk::Buffer>;
 

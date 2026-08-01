@@ -21,8 +21,8 @@ auto to_gpu_extent(const vuk::Extent3D extent) -> GPU::Extent3D {
 template <typename T>
 auto update_projected_transform_buffer(
   auto& render_context,
-  std::span<GPU::Transforms> gpu_transforms,
-  std::span<GPU::TransformID> dirty_transform_ids,
+  std::span<const GPU::Transforms> gpu_transforms,
+  std::span<const GPU::TransformID> dirty_transform_ids,
   vuk::Unique<vuk::Buffer>& buffer,
   vuk::Value<vuk::Buffer>& prepared_buffer,
   auto projection,
@@ -113,9 +113,7 @@ auto update_projected_transform_buffer(
   prepared_buffer = update_pass(std::move(upload_buffer), std::move(buffer_handle));
 }
 
-RendererInstance::RendererInstance(Scene& owner_scene, Renderer& parent_renderer)
-    : scene(owner_scene),
-      renderer(parent_renderer) {
+RendererInstance::RendererInstance(Renderer& parent_renderer) : renderer(parent_renderer) {
 
   auto& render_context = App::get_rendercontext();
   auto& allocator = render_context.superframe_allocator;
@@ -1433,18 +1431,21 @@ auto RendererInstance::prepare(
     auto line_index_count = 0_u32;
     auto triangle_index_count = 0_u32;
 
-    const auto append_draw_list = [&](const DebugDrawList& draw_list) {
-      auto [lines, lines_count] = DebugDrawList::get_vertices_from_lines(draw_list.get_lines(false));
-      line_vertices.insert(line_vertices.end(), lines.begin(), lines.end());
-      line_index_count += lines_count;
-
-      auto [triangles, triangles_count] = DebugDrawList::get_vertices_from_triangles(draw_list.get_triangles(false));
-      triangle_vertices.insert(triangle_vertices.end(), triangles.begin(), triangles.end());
-      triangle_index_count += triangles_count;
+    const auto append_lines = [&](std::span<const DebugDrawList::Line> lines) {
+      auto [vertices, count] = DebugDrawList::get_vertices_from_lines(lines);
+      line_vertices.insert(line_vertices.end(), vertices.begin(), vertices.end());
+      line_index_count += count;
+    };
+    const auto append_triangles = [&](std::span<const DebugDrawList::Triangle> triangles) {
+      auto [vertices, count] = DebugDrawList::get_vertices_from_triangles(triangles);
+      triangle_vertices.insert(triangle_vertices.end(), vertices.begin(), vertices.end());
+      triangle_index_count += count;
     };
 
-    append_draw_list(self.scene.debug_draw_list);
-    append_draw_list(debug_renderer.draw_list);
+    append_lines(snapshot.debug_lines);
+    append_triangles(snapshot.debug_triangles);
+    append_lines(debug_renderer.draw_list.get_lines(false));
+    append_triangles(debug_renderer.draw_list.get_triangles(false));
 
     const u32 index_count = line_index_count + triangle_index_count;
     OX_CHECK_LT(index_count, DebugRenderer::MAX_LINE_INDICES, "Increase DebugRenderer::MAX_LINE_INDICES");
@@ -1474,7 +1475,7 @@ auto RendererInstance::prepare(
       );
     }
 
-    self.scene.debug_draw_list.reset();
+    // The simulation already cleared its own list when it produced the snapshot.
     debug_renderer.draw_list.reset();
   }
 

@@ -80,6 +80,54 @@ auto SceneExtractor::extract(
   self.extract_lights_and_sky(scene, out);
   self.extract_post_process(out);
   self.extract_sprites(scene, out);
+  self.extract_geometry(scene, out);
+}
+
+auto SceneExtractor::extract_geometry(this SceneExtractor& self, Scene& scene, FrameSnapshot& out) -> void {
+  ZoneScoped;
+
+  const auto transform_slots = scene.transforms.slots_unsafe();
+  out.transforms.assign(transform_slots.begin(), transform_slots.end());
+  out.dirty_transform_ids.assign(scene.dirty_transforms.begin(), scene.dirty_transforms.end());
+
+  out.mesh_instances_rebuilt = scene.meshes_dirty;
+
+  // Instances go over as UUIDs and slot indices. Turning those into device addresses and bindless
+  // material indices is the client's job, and the only side that can do it.
+  self.slot_to_entity.clear();
+  self.slot_to_entity.reserve(scene.entity_to_mesh_instance_map.size());
+  for (const auto& [entity, mesh_instance_id] : scene.entity_to_mesh_instance_map) {
+    self.slot_to_entity.emplace(SlotMap_decode_id(mesh_instance_id).index, static_cast<EntityHandle>(entity.id()));
+  }
+
+  scene.mesh_instances.for_each_active([&out, &self](usize index, const MeshInstance& mesh_instance) {
+    const auto it = self.slot_to_entity.find(static_cast<u32>(index));
+    const auto entity = it == self.slot_to_entity.end() ? EntityHandle::Invalid : it->second;
+
+    out.mesh_instances.emplace_back(
+      MeshInstanceSnapshot{
+        .model_uuid = mesh_instance.model_uuid,
+        .mesh_node_index = static_cast<u32>(mesh_instance.mesh_node_index),
+        .material_uuid = mesh_instance.material_uuid,
+        .transform_index = SlotMap_decode_id(mesh_instance.transform_id).index,
+        .slot_index = static_cast<u32>(index),
+        .entity = entity,
+      }
+    );
+  });
+
+  out.dirty_mesh_instance_slots.reserve(scene.dirty_mesh_instances.size());
+  for (const auto mesh_instance_id : scene.dirty_mesh_instances) {
+    out.dirty_mesh_instance_slots.push_back(SlotMap_decode_id(mesh_instance_id).index);
+  }
+
+  // Debug geometry is immediate-mode: drain it into the snapshot and clear, so it never survives a
+  // frame whether or not anything is drawing.
+  const auto lines = scene.debug_draw_list.get_lines(false);
+  const auto triangles = scene.debug_draw_list.get_triangles(false);
+  out.debug_lines.assign(lines.begin(), lines.end());
+  out.debug_triangles.assign(triangles.begin(), triangles.end());
+  scene.debug_draw_list.reset();
 }
 
 auto SceneExtractor::extract_views(

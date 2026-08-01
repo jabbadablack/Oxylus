@@ -1,6 +1,7 @@
 #pragma once
 
 #include "EditorPanelState.hpp"
+#include "Render/RenderScene.hpp"
 #include "UI/RuntimeConsole.hpp"
 #include "Utils/SceneManager.hpp"
 
@@ -8,6 +9,10 @@ namespace ox {
 class ViewportPanel : public EditorPanelState {
 public:
   flecs::entity editor_camera = {};
+
+  // One renderer instance per view, not per scene. Stage injection is cleared at the end of
+  // every render(), so sharing an instance between viewports made them stomp each other.
+  RenderScene render_scene = {};
 
   bool performance_overlay_visible = true;
   bool is_viewport_focused = {};

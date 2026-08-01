@@ -983,7 +983,7 @@ auto RenderContext::upload_staging(
 }
 
 auto RenderContext::upload_staging(
-  void* data, u64 data_size, vuk::Value<vuk::Buffer>&& dst, u64 dst_offset, vuk::source_location LOC
+  const void* data, u64 data_size, vuk::Value<vuk::Buffer>&& dst, u64 dst_offset, vuk::source_location LOC
 ) -> vuk::Value<vuk::Buffer> {
   ZoneScoped;
 
@@ -995,7 +995,7 @@ auto RenderContext::upload_staging(
 }
 
 auto RenderContext::upload_staging(
-  void* data, u64 data_size, vuk::Buffer& dst, u64 dst_offset, vuk::source_location LOC
+  const void* data, u64 data_size, vuk::Buffer& dst, u64 dst_offset, vuk::source_location LOC
 ) -> vuk::Value<vuk::Buffer> {
   ZoneScoped;
 

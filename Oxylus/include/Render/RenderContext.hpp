@@ -140,24 +140,30 @@ public:
     -> vuk::Value<vuk::Buffer>;
 
   [[nodiscard]]
-  auto upload_staging(void* data, u64 data_size, vuk::Value<vuk::Buffer>&& dst, u64 dst_offset = 0, OX_THISCALL)
+  auto upload_staging(const void* data, u64 data_size, vuk::Value<vuk::Buffer>&& dst, u64 dst_offset = 0, OX_THISCALL)
     -> vuk::Value<vuk::Buffer>;
 
   [[nodiscard]]
-  auto upload_staging(void* data, u64 data_size, vuk::Buffer& dst, u64 dst_offset = 0, OX_THISCALL)
+  auto upload_staging(const void* data, u64 data_size, vuk::Buffer& dst, u64 dst_offset = 0, OX_THISCALL)
     -> vuk::Value<vuk::Buffer>;
 
   template <typename T>
   [[nodiscard]]
   auto upload_staging(std::span<T> span, vuk::Buffer& dst, u64 dst_offset = 0, OX_THISCALL) -> vuk::Value<vuk::Buffer> {
-    return upload_staging(reinterpret_cast<void*>(span.data()), span.size_bytes(), dst, dst_offset, LOC);
+    return upload_staging(reinterpret_cast<const void*>(span.data()), span.size_bytes(), dst, dst_offset, LOC);
   }
 
   template <typename T>
   [[nodiscard]]
   auto upload_staging(std::span<T> span, vuk::Value<vuk::Buffer>&& dst, u64 dst_offset = 0, OX_THISCALL)
     -> vuk::Value<vuk::Buffer> {
-    return upload_staging(reinterpret_cast<void*>(span.data()), span.size_bytes(), std::move(dst), dst_offset, LOC);
+    return upload_staging(
+      reinterpret_cast<const void*>(span.data()),
+      span.size_bytes(),
+      std::move(dst),
+      dst_offset,
+      LOC
+    );
   }
 
   template <typename T>

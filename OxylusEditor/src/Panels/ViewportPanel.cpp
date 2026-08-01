@@ -256,7 +256,7 @@ void ViewportPanel::on_render(this ViewportPanel& self, vuk::ImageAttachment swa
       return;
     }
 
-    auto renderer_instance = self.editor_scene->get_scene()->get_renderer_instance();
+    auto renderer_instance = self.render_scene.get_instance();
     if (!renderer_instance) {
       const auto warning_text = "No scene render output!";
       const auto text_width = ImGui::CalcTextSize(warning_text).x;
@@ -325,7 +325,11 @@ void ViewportPanel::on_render(this ViewportPanel& self, vuk::ImageAttachment swa
       auto viewport_attachment = vuk::declare_ia("viewport", viewport_attachment_info);
       viewport_attachment = vuk::clear_image(std::move(viewport_attachment), vuk::Black<f32>);
 
-      auto scene_view_image = self.editor_scene->get_scene()->render(std::move(viewport_attachment), render_info);
+      auto scene_view_image = self.render_scene.render(
+        std::move(viewport_attachment),
+        render_info,
+        self.editor_scene->get_scene()->renderer_cvar
+      );
 
       ImGui::SetCursorPos(
         {ImGui::GetCursorPosX() + self.viewport_offset.x, ImGui::GetCursorPosY() + self.viewport_offset.y}
@@ -497,6 +501,8 @@ auto ViewportPanel::set_context(this ViewportPanel& self, const std::shared_ptr<
   self.editor_scene = scene;
 
   self.set_name(fmt::format("Viewport:{}", scene->get_scene()->scene_name));
+
+  self.render_scene.init();
 
   if (!scene->is_playing()) {
     self.editor_camera = self.editor_scene->get_scene()->create_entity("editor_camera", false);

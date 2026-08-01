@@ -28,10 +28,11 @@ if(NOT OX_LUA_BINDINGS)
 endif()
 
 # Directories that belong wholly to the simulation.
-# Sim/ is not here yet: SceneExtractor includes Scene/Scene.hpp, which still reaches vuk through its
-# unique_ptr<RendererInstance> member and its render() signature. Both leave Scene in Phase 5, and
-# Sim/ moves across with them - along with Physics/ and Scripting/, blocked on the same include.
-set(OX_SIM_DIR_RE "/src/(Memory|OS|Audio)/")
+# Physics/, Scene/ and Scripting/ are not here yet, and no longer for header reasons - Scene.hpp is
+# vuk-free as of Phase 5. What blocks them now is that their .cpp files reach App::mod<T>() and
+# App::get_job_manager(), and Core/App.hpp owns the window and render context. SimHost (Phase 7) is
+# what gives simulation code a service handle that is not App.
+set(OX_SIM_DIR_RE "/src/(Memory|OS|Audio|Sim)/")
 
 # Files from split directories that are simulation-side today. Everything not matched here or by
 # OX_SIM_DIR_RE lands in the presentation target.

@@ -239,6 +239,9 @@ void MainViewportPanel::update(this MainViewportPanel& self, const Timestep& tim
         panel_scene->get_scene()->disable_phases({flecs::PreUpdate, flecs::OnUpdate});
         panel_scene->get_scene()->runtime_update(timestep);
       }
+
+      // The simulation is done for this tick; the view now turns its snapshot into GPU state.
+      panel->render_scene.prepare(panel_scene->get_scene()->frame_snapshot, panel_scene->get_scene()->renderer_cvar);
     }
 
     if (panel->visible) {

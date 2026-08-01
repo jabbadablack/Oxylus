@@ -17,6 +17,8 @@ namespace ox {
 auto ThumbnailManager::init(this ThumbnailManager& self) -> void {
   ZoneScoped;
 
+  self.thumbnail_render_scene.init();
+
   self.cache_dir = std::filesystem::current_path() / ".oxeditor/thumbnails";
   if (!std::filesystem::exists(self.cache_dir)) {
     std::filesystem::create_directories(self.cache_dir);
@@ -277,9 +279,9 @@ auto ThumbnailManager::render_thumbnail(this ThumbnailManager& self, UUID model_
   thumbnail_scene.renderer_cvar.cvar_enable_debug_renderer.set(false);
 
   const Renderer::RenderInfo render_info = {};
-  auto renderer_instance = thumbnail_scene.get_renderer_instance();
-  auto scene_view_image = renderer_instance
-                            ->render(std::move(thumbnail_image), render_info, thumbnail_scene.renderer_cvar);
+  self.thumbnail_render_scene.prepare(thumbnail_scene.frame_snapshot, thumbnail_scene.renderer_cvar);
+  auto scene_view_image = self.thumbnail_render_scene
+                            .render(std::move(thumbnail_image), render_info, thumbnail_scene.renderer_cvar);
 
   usize buffer_size = size * size * 4; // RGBA8
   auto readback_buffer = render_context.alloc_transient_buffer(vuk::MemoryUsage::eGPUtoCPU, buffer_size);

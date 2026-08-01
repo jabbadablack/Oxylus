@@ -136,12 +136,12 @@ struct RendererInstanceUpdateInfo {
   u32 mesh_instance_count = 0;
   u32 max_meshlet_instance_count = 0;
 
-  std::span<GPU::TransformID> dirty_transform_ids = {};
-  std::span<GPU::Transforms> gpu_transforms = {};
+  std::span<const GPU::TransformID> dirty_transform_ids = {};
+  std::span<const GPU::Transforms> gpu_transforms = {};
 
-  std::span<GPU::Mesh> gpu_meshes = {};
-  std::span<GPU::MeshInstance> gpu_mesh_instances = {};
-  std::span<u32> dirty_mesh_instance_indices = {};
+  std::span<const GPU::Mesh> gpu_meshes = {};
+  std::span<const GPU::MeshInstance> gpu_mesh_instances = {};
+  std::span<const u32> dirty_mesh_instance_indices = {};
 };
 
 struct PreparedFrame {
@@ -307,7 +307,7 @@ struct PostProcessContext {
 
 class RendererInstance {
 public:
-  explicit RendererInstance(Scene& owner_scene, Renderer& parent_renderer);
+  explicit RendererInstance(Renderer& parent_renderer);
   ~RendererInstance();
 
   RendererInstance(const RendererInstance&) = delete;
@@ -390,7 +390,6 @@ private:
   auto execute_stages_before(this const RendererInstance& self, RenderStage stage, RenderStageContext& ctx) -> void;
   auto execute_stages_after(this const RendererInstance& self, RenderStage stage, RenderStageContext& ctx) -> void;
 
-  Scene& scene;
   Renderer& renderer;
   GPU::RenderQueue2D render_queue_2d = {};
   bool saved_camera = false;

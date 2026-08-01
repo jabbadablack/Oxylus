@@ -25,6 +25,15 @@ auto FrameSnapshot::clear(this FrameSnapshot& self) -> void {
   self.views.resize(0);
   self.lights.resize(0);
   self.sprites.resize(0);
+
+  self.debug_lines.resize(0);
+  self.debug_triangles.resize(0);
+
+  self.mesh_instances_rebuilt = false;
+  self.transforms.resize(0);
+  self.dirty_transform_ids.resize(0);
+  self.mesh_instances.resize(0);
+  self.dirty_mesh_instance_slots.resize(0);
 }
 
 auto FrameSnapshot::find_view(this const FrameSnapshot& self, const SimViewID view_id) -> const ViewSnapshot* {

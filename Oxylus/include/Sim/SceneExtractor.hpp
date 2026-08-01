@@ -33,6 +33,7 @@ private:
   auto extract_lights_and_sky(this SceneExtractor& self, Scene& scene, FrameSnapshot& out) -> void;
   auto extract_post_process(this SceneExtractor& self, FrameSnapshot& out) -> void;
   auto extract_sprites(this SceneExtractor& self, Scene& scene, FrameSnapshot& out) -> void;
+  auto extract_geometry(this SceneExtractor& self, Scene& scene, FrameSnapshot& out) -> void;
 
   bool initialized = false;
 
@@ -47,5 +48,8 @@ private:
   flecs::query<const TonemappingComponent> tonemap_query = {};
 
   glm::vec3 previous_sun_direction = {};
+
+  // Scratch, kept across ticks so the per-frame rebuild does not reallocate.
+  ankerl::unordered_dense::map<u32, EntityHandle> slot_to_entity = {};
 };
 } // namespace ox

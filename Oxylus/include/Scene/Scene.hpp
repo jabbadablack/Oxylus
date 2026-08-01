@@ -14,10 +14,10 @@
 #include "Asset/Fwd.hpp"
 #include "Asset/MeshInstance.hpp"
 #include "Core/UUID.hpp"
+#include "Memory/SlotMap.hpp"
 #include "Physics/PhysicsDebugRenderer.hpp"
 #include "Physics/PhysicsInterfaces.hpp"
 #include "Render/RendererCVar.hpp"
-#include "Render/RendererInstance.hpp"
 #include "Scene/Components.hpp"
 #include "Scene/DebugDrawList.hpp"
 #include "Scene/SceneGPU.hpp"
@@ -169,11 +169,6 @@ public:
     flecs::entity entity, const TransformComponent& transform, CharacterControllerComponent& component
   ) const -> void;
 
-  auto render(
-    this Scene& self, vuk::Value<vuk::ImageAttachment>&& dst_attachment, const Renderer::RenderInfo& render_info
-  ) -> vuk::Value<vuk::ImageAttachment>;
-  auto get_renderer_instance() const -> RendererInstance* { return renderer_instance.get(); }
-
   static auto entity_to_json(JsonWriter& writer, flecs::entity e) -> void;
   static auto json_to_entity(
     Scene& self, //
@@ -195,9 +190,6 @@ private:
 
   // Lua
   ankerl::unordered_dense::map<UUID, LuaSystem*> lua_systems = {};
-
-  // Renderer
-  std::unique_ptr<RendererInstance> renderer_instance = nullptr;
 
   // Physics
   f32 physics_accumulator = 0.f;

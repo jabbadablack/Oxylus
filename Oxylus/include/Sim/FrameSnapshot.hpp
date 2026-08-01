@@ -6,6 +6,7 @@
 
 #include "Core/Types.hpp"
 #include "Core/UUID.hpp"
+#include "Scene/DebugDrawList.hpp"
 #include "Scene/SceneGPU.hpp"
 #include "Sim/Fwd.hpp"
 
@@ -42,6 +43,20 @@ struct ViewSnapshot {
   f32 near_clip = 0.f;
   f32 far_clip = 0.f;
   f32 fov = 0.f;
+};
+
+// One placed mesh, still logical: UUIDs rather than resolved GPU indices, so the client owns the
+// mapping from asset identity to device addresses and bindless slots.
+struct MeshInstanceSnapshot {
+  UUID model_uuid = UUID(nullptr);
+  u32 mesh_node_index = 0;
+  UUID material_uuid = UUID(nullptr);
+  u32 transform_index = 0;
+  // Slot index in the scene's mesh instance map, used to match up the dirty list.
+  u32 slot_index = 0;
+  // Carried so the client can answer "which entity is at this pixel" without reaching into the
+  // scene; this is what replaces Scene::transform_index_entities_map.
+  EntityHandle entity = EntityHandle::Invalid;
 };
 
 // A 2D draw, still logical: the material is a UUID and the depth ordering is left to the client,
@@ -82,6 +97,23 @@ struct FrameSnapshot {
   std::vector<ViewSnapshot> views = {};
   std::vector<GPU::Light> lights = {};
   std::vector<Sprite2DSnapshot> sprites = {};
+
+  // The full transform array, not just the dirty entries. A client that misses a frame never sees
+  // that frame's dirty list, and the renderer's own upload path needs random access for its
+  // full-rebuild case; `dirty_transform_ids` is an upload hint, not the whole truth.
+  std::vector<GPU::Transforms> transforms = {};
+  std::vector<GPU::TransformID> dirty_transform_ids = {};
+
+  // Debug geometry produced by the simulation this frame (bounding boxes, physics shapes). The
+  // client merges it with its own before upload.
+  std::vector<DebugDrawList::Line> debug_lines = {};
+  std::vector<DebugDrawList::Triangle> debug_triangles = {};
+
+  // True when the instance list itself changed shape, so the client must rebuild its GPU arrays
+  // rather than patch the dirty entries.
+  bool mesh_instances_rebuilt = false;
+  std::vector<MeshInstanceSnapshot> mesh_instances = {};
+  std::vector<u32> dirty_mesh_instance_slots = {};
 
   // resize(0) rather than clear-and-shrink: the snapshot is reused every frame and keeping the
   // capacity is what makes steady state allocation-free.

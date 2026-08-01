@@ -166,7 +166,7 @@ auto upload_dirty_elements(
   return update_pass(std::move(upload_buffer), std::move(buffer_handle));
 }
 
-auto Renderer::new_instance(Scene& scene) -> std::unique_ptr<RendererInstance> {
+auto Renderer::new_instance() -> std::unique_ptr<RendererInstance> {
   ZoneScoped;
 
   if (!initalized) {
@@ -174,7 +174,7 @@ auto Renderer::new_instance(Scene& scene) -> std::unique_ptr<RendererInstance> {
     return nullptr;
   }
 
-  auto instance = std::make_unique<RendererInstance>(scene, *this);
+  auto instance = std::make_unique<RendererInstance>(*this);
   return instance;
 }
 
