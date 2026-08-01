@@ -230,6 +230,8 @@ void MainViewportPanel::update(this MainViewportPanel& self, const Timestep& tim
     }
 
     if (panel_scene) {
+      panel->publish_view_request();
+
       if (panel_scene->is_playing()) {
         panel_scene->get_scene()->enable_all_phases();
         panel_scene->get_scene()->runtime_update(timestep);

@@ -422,6 +422,8 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
   self.physics_system = physics.new_system();
   self.physics_debug_renderer = physics.new_debug_renderer(self.debug_draw_list);
 
+  self.extractor.init(self.world);
+
   self.world.observer<TransformComponent>()
     .event(flecs::OnSet)
     .event(flecs::OnAdd)
@@ -458,11 +460,9 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
       if (mc.model_uuid)
         self.attach_mesh(entity, mc.model_uuid, mc.mesh_index, mc.material_uuid);
 
-      if (auto id = self.get_entity_transform_id(entity)) {
-        if (auto* transform = self.get_entity_transform(*id)) {
-          mc.world_aabb = mc.baked_aabb.get_transformed(transform->world);
-        }
-      }
+      // Derived from the ECS transform. This used to read back out of the GPU transform slot, which
+      // made simulation state depend on a presentation mirror.
+      mc.world_aabb = mc.baked_aabb.get_transformed(Scene::get_world_transform(entity));
     });
 
   self.world.observer<TransformComponent, MeshComponent>()
@@ -480,13 +480,9 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
     .event(flecs::OnAdd)
     .each([&self](flecs::iter& it, usize i, TransformComponent&, SpriteComponent& sprite) {
       auto entity = it.entity(i);
-      // Set sprite rect
-      if (auto id = self.get_entity_transform_id(entity)) {
-        if (auto* transform = self.get_entity_transform(*id)) {
-          sprite.rect = AABB(glm::vec3(-0.5, -0.5, -0.5), glm::vec3(0.5, 0.5, 0.5));
-          sprite.rect = sprite.rect.get_transformed(transform->world);
-        }
-      }
+      // Same as the mesh AABB above: derived from the ECS transform rather than the GPU mirror.
+      sprite.rect = AABB(glm::vec3(-0.5, -0.5, -0.5), glm::vec3(0.5, 0.5, 0.5));
+      sprite.rect = sprite.rect.get_transformed(Scene::get_world_transform(entity));
     });
 
   self.world.observer<SpriteComponent>()
@@ -950,11 +946,11 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
 
   self.world.system<const TransformComponent, CameraComponent>("camera_update")
     .kind(flecs::PostUpdate)
-    .each([&self](const TransformComponent& tc, CameraComponent& cc) {
+    .each([&self](const flecs::entity entity, const TransformComponent& tc, CameraComponent& cc) {
       cc.position = tc.position;
-      auto ri = self.get_renderer_instance();
-      if (ri)
-        Camera::update(cc, ri->get_viewport_size());
+      // The extent comes from what the client asked to render, not from a renderer instance the
+      // simulation is not supposed to know about. Headless ticks fall back to a fixed extent.
+      Camera::update(cc, self.viewport_extent_for(entity));
     });
 
   self.world.system<SpriteComponent>("sprite_aabb")
@@ -1165,6 +1161,11 @@ auto Scene::runtime_update(this Scene& self, const Timestep& delta_time) -> void
     self.physics_system->DrawBodies(settings, self.physics_debug_renderer.get());
   }
 
+  // Runs whether or not anything is drawing: the extract is simulation output, and a headless tick
+  // still produces it.
+  self.extractor.extract(self, self.view_requests, self.frame_snapshot);
+  self.frame_snapshot.delta_time = static_cast<f32>(delta_time.get_seconds());
+
   if (self.renderer_instance) {
     auto& asset_man = App::mod<AssetManager>();
     auto meshlet_instance_visibility_offset = 0_u32;
@@ -1237,7 +1238,7 @@ auto Scene::runtime_update(this Scene& self, const Timestep& delta_time) -> void
       .gpu_mesh_instances = gpu_mesh_instances,
       .dirty_mesh_instance_indices = dirty_mesh_instance_gpu_indices,
     };
-    self.renderer_instance->update(update_info, self.renderer_cvar);
+    self.renderer_instance->prepare(update_info, self.frame_snapshot, self.renderer_cvar);
 
     for (const auto transform_id : self.dirty_transforms) {
       if (auto* gpu_transform = self.transforms.slot(transform_id)) {
@@ -1248,6 +1249,27 @@ auto Scene::runtime_update(this Scene& self, const Timestep& delta_time) -> void
   self.dirty_transforms.clear();
   self.dirty_mesh_instances.clear();
   self.meshes_dirty = false;
+}
+
+auto Scene::viewport_extent_for(this const Scene& self, const flecs::entity camera_entity) -> glm::uvec2 {
+  ZoneScoped;
+
+  constexpr auto default_extent = glm::uvec2(1920, 1080);
+
+  const auto handle = static_cast<EntityHandle>(camera_entity.id());
+  for (const auto& request : self.view_requests) {
+    if (request.camera_entity == handle && request.viewport_size.x > 0 && request.viewport_size.y > 0) {
+      return request.viewport_size;
+    }
+  }
+
+  for (const auto& request : self.view_requests) {
+    if (request.viewport_size.x > 0 && request.viewport_size.y > 0) {
+      return request.viewport_size;
+    }
+  }
+
+  return default_extent;
 }
 
 auto Scene::get_lua_system(this const Scene& self, const UUID& lua_script) -> LuaSystem* {

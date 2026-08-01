@@ -21,6 +21,11 @@ public:
   auto on_render(this ViewportPanel& self, vuk::ImageAttachment swapchain_attachment) -> void;
   auto on_update(this ViewportPanel& self) -> void;
 
+  // Tells the scene which view this panel wants rendered, before the simulation ticks. The
+  // extent feeds camera_update's aspect ratio, which used to be read back out of the renderer
+  // instance - a presentation object the simulation should not know about.
+  auto publish_view_request(this ViewportPanel& self) -> void;
+
   auto set_context(this ViewportPanel& self, const std::shared_ptr<EditorScene>& scene) -> void;
   auto get_scene(this const ViewportPanel& self) -> EditorScene* { return self.editor_scene.get(); }
 

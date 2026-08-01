@@ -4,6 +4,7 @@
 #include <vuk/Buffer.hpp>
 
 #include "Asset/Fwd.hpp"
+#include "Asset/MeshInstance.hpp"
 #include "Core/UUID.hpp"
 #include "Scene/SceneGPU.hpp"
 
@@ -49,13 +50,6 @@ struct Model {
   usize default_scene_index = 0;
 
   auto get_mesh_bounds(this const Model& self) -> GPU::MeshBounds;
-};
-
-struct MeshInstance {
-  UUID model_uuid = UUID(nullptr);
-  usize mesh_node_index = 0;
-  UUID material_uuid = UUID(nullptr);
-  GPU::TransformID transform_id = GPU::TransformID::Invalid;
 };
 
 } // namespace ox

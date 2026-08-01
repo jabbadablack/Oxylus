@@ -1193,8 +1193,9 @@ auto RendererInstance::render(
   return dst_attachment;
 }
 
-auto RendererInstance::update(this RendererInstance& self, RendererInstanceUpdateInfo& info, const RendererCVar& cvar)
-  -> void {
+auto RendererInstance::prepare(
+  this RendererInstance& self, RendererInstanceUpdateInfo& info, const FrameSnapshot& snapshot, const RendererCVar& cvar
+) -> void {
   ZoneScoped;
 
   self.update_ran_this_frame = true;
@@ -1202,244 +1203,92 @@ auto RendererInstance::update(this RendererInstance& self, RendererInstanceUpdat
   auto& asset_man = App::mod<AssetManager>();
   auto& render_context = *self.renderer.render_context;
 
-  self.gpu_scene_flags = {};
   self.prepared_frame = {};
 
-  CameraComponent current_camera = {};
-  CameraComponent frozen_camera = {};
+  // Everything world-derived arrives already resolved. What is left here is presentation state:
+  // temporal history, this renderer's LUT extents, the frame counter, and per-view sorting.
+  self.gpu_scene_flags = snapshot.flags;
+  self.atmosphere = snapshot.atmosphere;
+  self.sky_data = snapshot.sky;
+  self.eye_adaptation = snapshot.eye_adaptation;
+  self.post_proces_settings = snapshot.post_process;
+  self.directional_light = snapshot.directional_light;
+  self.tonemap_type = snapshot.tonemap_type;
+  self.directional_light_cast_shadows = snapshot.directional_light_cast_shadows;
+  self.sun_direction_changed = snapshot.sun_direction_changed;
+  self.first_clipmap_width = snapshot.first_clipmap_width;
+  self.clipmap_selection_bias = snapshot.clipmap_selection_bias;
+
+  if (self.gpu_scene_flags & GPU::SceneFlags::HasAtmosphere) {
+    self.atmosphere.sky_view_lut_size = to_gpu_extent(self.sky_view_lut_extent);
+    self.atmosphere.aerial_perspective_lut_size = to_gpu_extent(self.sky_aerial_perspective_lut_extent);
+    self.atmosphere.transmittance_lut_size = to_gpu_extent(self.sky_transmittance_lut.get_extent());
+    self.atmosphere.multiscattering_lut_size = to_gpu_extent(self.sky_multiscatter_lut.get_extent());
+  }
+
+  if (self.gpu_scene_flags & GPU::SceneFlags::HasFilmGrain) {
+    self.post_proces_settings.film_grain_seed = render_context.num_frames % 16;
+  }
+
+  // Freeze-culling is a renderer debugging aid: it holds on to the camera this instance last saw
+  // rather than asking the simulation to lie about where the camera is.
   const auto freeze_culling = static_cast<bool>(cvar.cvar_freeze_culling_frustum.get());
+  const auto* view = snapshot.views.empty() ? nullptr : &snapshot.views.front();
+  auto live_camera = view ? view->camera : GPU::CameraData{};
 
-  self.scene.world
-    .query_builder<const TransformComponent, const CameraComponent>() //
-    .build()
-    .each([&](flecs::entity e, const TransformComponent& tc, const CameraComponent& c) {
-      if (freeze_culling && !self.saved_camera) {
-        self.saved_camera = true;
-        frozen_camera = current_camera;
-      } else if (!freeze_culling && self.saved_camera) {
-        self.saved_camera = false;
-      }
+  if (freeze_culling && !self.saved_camera) {
+    self.saved_camera = true;
+    self.frozen_camera_data = self.camera_data;
+  } else if (!freeze_culling && self.saved_camera) {
+    self.saved_camera = false;
+  }
 
-      if (
-        static_cast<bool>(cvar.cvar_freeze_culling_frustum.get()) &&
-        static_cast<bool>(cvar.cvar_draw_camera_frustum.get())
-      ) {
-        const auto proj = frozen_camera.get_projection_matrix() * frozen_camera.get_view_matrix();
-        auto& debug_renderer = App::mod<ox::DebugRenderer>();
-        debug_renderer.draw_list
-          .draw_frustum(proj, glm::vec4(0, 1, 0, 1), frozen_camera.near_clip, frozen_camera.far_clip);
-      }
+  if (freeze_culling) {
+    live_camera = self.frozen_camera_data;
 
-      current_camera = c;
-    });
+    if (static_cast<bool>(cvar.cvar_draw_camera_frustum.get())) {
+      auto& debug_renderer = App::mod<ox::DebugRenderer>();
+      debug_renderer.draw_list.draw_frustum(
+        self.frozen_camera_data.projection_view,
+        glm::vec4(0, 1, 0, 1),
+        self.frozen_camera_data.near_clip,
+        self.frozen_camera_data.far_clip
+      );
+    }
+  }
 
-  CameraComponent cam = freeze_culling ? frozen_camera : current_camera;
-
-  self.camera_data = GPU::CameraData{
-    .position = glm::vec4(cam.position, 0.0f),
-    .projection = cam.get_projection_matrix(),
-    .inv_projection = cam.get_inv_projection_matrix(),
-    .view = cam.get_view_matrix(),
-    .inv_view = cam.get_inv_view_matrix(),
-    .projection_view = cam.get_projection_matrix() * cam.get_view_matrix(),
-    .inv_projection_view = cam.get_inverse_projection_view(),
-    .previous_projection = self.previous_camera_data.projection,
-    .previous_inv_projection = self.previous_camera_data.inv_projection,
-    .previous_view = self.previous_camera_data.view,
-    .previous_inv_view = self.previous_camera_data.inv_view,
-    .previous_projection_view = self.previous_camera_data.projection_view,
-    .previous_inv_projection_view = self.previous_camera_data.inv_projection_view,
-    .temporalaa_jitter = cam.jitter,
-    .temporalaa_jitter_prev = self.previous_camera_data.temporalaa_jitter_prev,
-    .near_clip = cam.near_clip,
-    .far_clip = cam.far_clip,
-    .fov = cam.fov,
-    .output_index = 0,
-    .acceptable_lod_error = 2.0f,
-  };
+  self.camera_data = live_camera;
+  self.camera_data.previous_projection = self.previous_camera_data.projection;
+  self.camera_data.previous_inv_projection = self.previous_camera_data.inv_projection;
+  self.camera_data.previous_view = self.previous_camera_data.view;
+  self.camera_data.previous_inv_view = self.previous_camera_data.inv_view;
+  self.camera_data.previous_projection_view = self.previous_camera_data.projection_view;
+  self.camera_data.previous_inv_projection_view = self.previous_camera_data.inv_projection_view;
+  self.camera_data.temporalaa_jitter_prev = self.previous_camera_data.temporalaa_jitter_prev;
 
   self.previous_camera_data = self.camera_data;
 
-  math::calc_frustum_planes(self.camera_data.projection_view, self.camera_data.frustum_planes);
-
-  self.scene.lights.reset();
-
-  self.scene.world
-    .query_builder<const TransformComponent, const LightComponent>() //
-    .build()
-    .each([&self](flecs::entity e, const TransformComponent& tc, const LightComponent& lc) {
-      if (!e.enabled()) {
-        return;
-      }
-
-      const glm::mat4 world_transform = self.scene.get_world_transform(e);
-      const glm::vec3 world_position = world_transform[3];
-      const glm::vec3 world_forward = glm::normalize(glm::mat3(world_transform) * glm::vec3(0.0f, 0.0f, -1.0f));
-
-      if (lc.type == LightComponent::LightType::Directional) {
-        self.gpu_scene_flags |= GPU::SceneFlags::HasDirectionalLight;
-        self.directional_light.color = lc.color;
-        self.directional_light.intensity = lc.intensity;
-        self.sun_direction_changed = world_forward != self.previous_sun_direction;
-        self.previous_sun_direction = world_forward;
-        self.directional_light.direction = world_forward;
-        self.first_clipmap_width = lc.first_clipmap_width;
-        self.clipmap_selection_bias = lc.clipmap_selection_bias;
-
-        self.directional_light_cast_shadows = lc.cast_shadows;
-      } else {
-        const auto kind = lc.type == LightComponent::LightType::Spot ? GPU::LightKind::Spot : GPU::LightKind::Point;
-        const auto direction = lc.type == LightComponent::LightType::Spot ? world_forward : glm::vec3(0.0f);
-        const auto light_id = self.scene.lights.create_slot(
-          GPU::Light{
-            .position = world_position,
-            .intensity = lc.intensity,
-            .color = lc.color,
-            .range = lc.radius,
-            .direction = direction,
-            .inner_cone_angle = lc.inner_cone_angle,
-            .outer_cone_angle = lc.outer_cone_angle,
-            .kind = kind,
-          }
-        );
-      }
-      if (const auto* atmos_info = e.try_get<AtmosphereComponent>()) {
-        self.gpu_scene_flags |= GPU::SceneFlags::HasAtmosphere;
-
-        self.atmosphere.rayleigh_scatter = atmos_info->rayleigh_scattering * 1e-3f;
-        self.atmosphere.rayleigh_density = atmos_info->rayleigh_density;
-        self.atmosphere.mie_scatter = atmos_info->mie_scattering * 1e-3f;
-        self.atmosphere.mie_density = atmos_info->mie_density;
-        self.atmosphere.mie_extinction = atmos_info->mie_extinction * 1e-3f;
-        self.atmosphere.mie_asymmetry = atmos_info->mie_asymmetry;
-        self.atmosphere.ozone_absorption = atmos_info->ozone_absorption * 1e-3f;
-        self.atmosphere.ozone_height = atmos_info->ozone_height;
-        self.atmosphere.ozone_thickness = atmos_info->ozone_thickness;
-        self.atmosphere.aerial_perspective_start_km = atmos_info->aerial_perspective_start_km;
-        self.atmosphere.aerial_perspective_exposure = atmos_info->aerial_perspective_exposure;
-        self.atmosphere.sky_view_lut_size = to_gpu_extent(self.sky_view_lut_extent);
-        self.atmosphere.aerial_perspective_lut_size = to_gpu_extent(self.sky_aerial_perspective_lut_extent);
-        self.atmosphere.transmittance_lut_size = to_gpu_extent(self.sky_transmittance_lut.get_extent());
-        self.atmosphere.multiscattering_lut_size = to_gpu_extent(self.sky_multiscatter_lut.get_extent());
-      }
-
-      if (const auto* sky_info = e.try_get<SkyComponent>()) {
-        self.gpu_scene_flags |= GPU::SceneFlags::HasSky;
-
-        self.sky_data.solid_color = sky_info->solid_color;
-        self.sky_data.ambient_color = sky_info->ambient_color;
-        self.sky_data.has_texture = static_cast<bool>(sky_info->texture);
-      }
-    });
-
+  // Sprite depth ordering depends on the camera, so it is resolved per view rather than extracted.
   self.render_queue_2d.init();
+  for (const auto& sprite : snapshot.sprites) {
+    const auto material = asset_man.get_asset(sprite.material_uuid);
+    if (!material) {
+      continue;
+    }
 
-  self.scene.world
-    .query_builder<const TransformComponent, const SpriteComponent>() //
-    .build()
-    .each([&asset_man,
-           &s = self.scene,
-           &cam,
-           &rq2d = self.render_queue_2d](flecs::entity e, const TransformComponent& tc, const SpriteComponent& comp) {
-      const auto distance = glm::distance(glm::vec3(0.f, 0.f, cam.position.z), glm::vec3(0.f, 0.f, tc.position.z));
-      if (auto material = asset_man.get_asset(comp.material)) {
-        u16 flags = 0;
-        if (comp.sort_y)
-          flags |= GPU::RENDER_FLAGS_2D_SORT_Y;
-        if (comp.flip_x)
-          flags |= GPU::RENDER_FLAGS_2D_FLIP_X;
+    const auto distance = glm::distance(
+      glm::vec3(0.f, 0.f, self.camera_data.position.z),
+      glm::vec3(0.f, 0.f, sprite.position_z)
+    );
 
-        if (auto transform_id = s.get_entity_transform_id(e)) {
-          rq2d.add(
-            flags,
-            tc.position.y,
-            SlotMap_decode_id(*transform_id).index,
-            SlotMap_decode_id(material->material_id).index,
-            distance
-          );
-        } else {
-          OX_LOG_WARN("No registered transform for sprite entity: {}", e.name().c_str());
-        }
-      }
-    });
-
-  self.scene.world
-    .query_builder<const TransformComponent, const ParticleComponent>() //
-    .build()
-    .each([&asset_man,
-           &s = self.scene,
-           &cam,
-           &rq2d = self.render_queue_2d](flecs::entity e, const TransformComponent& tc, const ParticleComponent& comp) {
-      if (comp.life_remaining <= 0.0f)
-        return;
-
-      const auto distance = glm::distance(glm::vec3(0.f, 0.f, cam.position.z), glm::vec3(0.f, 0.f, tc.position.z));
-
-      auto particle_system_component = e.parent().try_get<ParticleSystemComponent>();
-      if (particle_system_component) {
-        if (auto material = asset_man.get_asset(particle_system_component->material)) {
-          if (auto transform_id = s.get_entity_transform_id(e)) {
-            rq2d.add(
-              GPU::RENDER_FLAGS_2D_SORT_Y,
-              tc.position.y,
-              SlotMap_decode_id(*transform_id).index,
-              SlotMap_decode_id(material->material_id).index,
-              distance
-            );
-          } else {
-            OX_LOG_WARN("No registered transform for sprite entity: {}", e.name().c_str());
-          }
-        }
-      }
-    });
-
-  self.scene.world
-    .query_builder<const AutoExposureComponent>() //
-    .build()
-    .each([&self](flecs::entity e, const AutoExposureComponent& c) {
-      self.gpu_scene_flags |= GPU::SceneFlags::HasEyeAdaptation;
-      self.eye_adaptation.max_exposure = c.max_exposure;
-      self.eye_adaptation.min_exposure = c.min_exposure;
-      self.eye_adaptation.adaptation_speed = c.adaptation_speed;
-      self.eye_adaptation.ev100_bias = c.ev100_bias;
-    });
-
-  self.scene.world
-    .query_builder<const TransformComponent, const VignetteComponent>() //
-    .build()
-    .each([&](flecs::entity e, const TransformComponent& tc, const VignetteComponent& c) {
-      self.post_proces_settings.vignette_amount = c.amount;
-
-      self.gpu_scene_flags |= GPU::SceneFlags::HasVignette;
-    });
-
-  self.scene.world
-    .query_builder<const TransformComponent, const ChromaticAberrationComponent>() //
-    .build()
-    .each([&](flecs::entity e, const TransformComponent& tc, const ChromaticAberrationComponent& c) {
-      self.post_proces_settings.chromatic_aberration_amount = c.amount;
-
-      self.gpu_scene_flags |= GPU::SceneFlags::HasChromaticAberration;
-    });
-
-  self.scene.world
-    .query_builder<const TransformComponent, const FilmGrainComponent>() //
-    .build()
-    .each([&](flecs::entity e, const TransformComponent& tc, const FilmGrainComponent& c) {
-      self.post_proces_settings.film_grain_amount = c.amount;
-      self.post_proces_settings.film_grain_scale = c.scale;
-      self.post_proces_settings.film_grain_seed = render_context.num_frames % 16;
-
-      self.gpu_scene_flags |= GPU::SceneFlags::HasFilmGrain;
-    });
-
-  self.scene.world
-    .query_builder<const TonemappingComponent>() //
-    .build()
-    .each([&](flecs::entity e, const TonemappingComponent& tc) {
-      self.tonemap_type = tc.tonemap_type;
-      //
-    });
+    self.render_queue_2d.add(
+      sprite.flags,
+      sprite.position_y,
+      sprite.transform_index,
+      SlotMap_decode_id(material->material_id).index,
+      distance
+    );
+  }
 
   auto zero_fill_pass = vuk::make_pass(
     "zero fill",
@@ -1473,8 +1322,9 @@ auto RendererInstance::update(this RendererInstance& self, RendererInstanceUpdat
   self.prepared_frame.materials_buffer = self.renderer.get_materials_buffer();
 
   {
-    const auto lights_span = self.scene.lights.slots_unsafe();
+    const auto lights_span = std::span<const GPU::Light>(snapshot.lights);
     const auto count = std::min<std::size_t>(lights_span.size(), GPU::MAX_LIGHTS);
+    self.prepared_frame.light_count = static_cast<u32>(count);
     const auto size_bytes = count * sizeof(GPU::Light);
     if (count > 0) {
       auto src_buffer = render_context.alloc_transient_buffer(vuk::MemoryUsage::eCPUtoGPU, size_bytes);

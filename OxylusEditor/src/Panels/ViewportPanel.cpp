@@ -357,6 +357,39 @@ void ViewportPanel::on_render(this ViewportPanel& self, vuk::ImageAttachment swa
   self.on_end();
 }
 
+auto ViewportPanel::publish_view_request(this ViewportPanel& self) -> void {
+  ZoneScoped;
+
+  if (!self.editor_scene) {
+    return;
+  }
+
+  const auto scene = self.editor_scene->get_scene();
+  if (!scene) {
+    return;
+  }
+
+  const auto extent = glm::uvec2(
+    static_cast<u32>(std::max(self.scaled_render_size.x, 1.f)),
+    static_cast<u32>(std::max(self.scaled_render_size.y, 1.f))
+  );
+
+  // In play mode the gameplay camera wins; in edit mode the panel's own fly-cam does. Both are
+  // expressed the same way, as a view the client is asking the simulation to resolve.
+  const auto camera_entity = self.editor_scene->is_playing() ? flecs::entity{} : self.editor_camera;
+
+  scene->view_requests.clear();
+  scene->view_requests.push_back(
+    ViewRequest{
+      .view_id = static_cast<SimViewID>(0),
+      .source = SimCameraSource::SimEntity,
+      .camera_entity = camera_entity.is_valid() ? static_cast<EntityHandle>(camera_entity.id()) : EntityHandle::Invalid,
+      .viewport_size = extent,
+      .viewport_offset = glm::uvec2(static_cast<u32>(self.viewport_offset.x), static_cast<u32>(self.viewport_offset.y)),
+    }
+  );
+}
+
 auto ViewportPanel::on_update(this ViewportPanel& self) -> void {
   if (
     !self.editor_scene || !self.is_viewport_hovered || self.editor_scene->get_scene()->is_running() ||

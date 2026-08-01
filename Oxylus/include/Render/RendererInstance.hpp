@@ -7,6 +7,7 @@
 #include "Render/Renderer.hpp"
 #include "Render/RendererCVar.hpp"
 #include "Scene/SceneGPU.hpp"
+#include "Sim/FrameSnapshot.hpp"
 
 namespace ox {
 // vuk::Extent3D and GPU::Extent3D are layout-compatible; this is the one place that bridges them.
@@ -163,6 +164,7 @@ struct PreparedFrame {
   vuk::Value<vuk::Buffer> dirty_mesh_instances_buffer = {};
   u32 dirty_mesh_instance_count = 0;
 
+  u32 light_count = 0;
   u32 line_index_count = 0;
   u32 triangle_index_count = 0;
   vuk::Value<vuk::Buffer> debug_renderer_verticies_buffer = {};
@@ -339,7 +341,16 @@ public:
     const Renderer::RenderInfo& render_info,
     const RendererCVar& cvar
   ) -> vuk::Value<vuk::ImageAttachment>;
-  auto update(this RendererInstance& self, RendererInstanceUpdateInfo& info, const RendererCVar& cvar) -> void;
+  // Consumes one frame of extracted simulation state. Everything world-derived is read from the
+  // snapshot; this instance contributes only presentation state (temporal history, LUT extents,
+  // per-view sorting). `info` still carries the mesh and transform arrays by span - folding those
+  // into the snapshot is the remaining half of the extract work.
+  auto prepare(
+    this RendererInstance& self,
+    RendererInstanceUpdateInfo& info,
+    const FrameSnapshot& snapshot,
+    const RendererCVar& cvar
+  ) -> void;
 
   auto get_viewport_size(this const RendererInstance& self) -> glm::uvec2 { return self.viewport_size; }
   auto get_viewport_offset(this const RendererInstance& self) -> glm::uvec2 { return self.viewport_offset; }
@@ -383,6 +394,9 @@ private:
   Renderer& renderer;
   GPU::RenderQueue2D render_queue_2d = {};
   bool saved_camera = false;
+  // Held so freeze-culling can keep drawing last frame's frustum without the simulation
+  // pretending the camera moved.
+  GPU::CameraData frozen_camera_data = {};
 
   glm::uvec2 viewport_size = {};
   glm::uvec2 viewport_offset = {};

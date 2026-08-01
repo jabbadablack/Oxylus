@@ -28,6 +28,9 @@ if(NOT OX_LUA_BINDINGS)
 endif()
 
 # Directories that belong wholly to the simulation.
+# Sim/ is not here yet: SceneExtractor includes Scene/Scene.hpp, which still reaches vuk through its
+# unique_ptr<RendererInstance> member and its render() signature. Both leave Scene in Phase 5, and
+# Sim/ moves across with them - along with Physics/ and Scripting/, blocked on the same include.
 set(OX_SIM_DIR_RE "/src/(Memory|OS|Audio)/")
 
 # Files from split directories that are simulation-side today. Everything not matched here or by

@@ -319,7 +319,7 @@ auto RendererInstance::apply_pbr(
     [scene_flags = self.gpu_scene_flags,
      sun_dir = self.directional_light.direction,
      sun_intensity = self.directional_light.intensity,
-     light_count = static_cast<u32>(self.scene.lights.size()),
+     light_count = self.prepared_frame.light_count,
      atmosphere_address = self.prepared_frame.atmosphere_buffer->device_address,
      sky_address = self.renderer.render_context->scratch_buffer(self.sky_data)->device_address](
       vuk::CommandBuffer& cmd_list,

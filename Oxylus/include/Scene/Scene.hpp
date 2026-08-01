@@ -12,7 +12,7 @@
 #include <simdjson.h>
 
 #include "Asset/Fwd.hpp"
-#include "Asset/Model.hpp"
+#include "Asset/MeshInstance.hpp"
 #include "Core/UUID.hpp"
 #include "Physics/PhysicsDebugRenderer.hpp"
 #include "Physics/PhysicsInterfaces.hpp"
@@ -22,6 +22,7 @@
 #include "Scene/DebugDrawList.hpp"
 #include "Scene/SceneGPU.hpp"
 #include "Scripting/LuaSystem.hpp"
+#include "Sim/SceneExtractor.hpp"
 #include "Utils/Timestep.hpp"
 
 template <>
@@ -73,10 +74,17 @@ public:
   // renderer drains it; the scene never learns how it is drawn.
   DebugDrawList debug_draw_list = {};
 
+  // One frame of extracted state, rebuilt at the end of every tick and handed to the renderer.
+  SceneExtractor extractor = {};
+  FrameSnapshot frame_snapshot = {};
+  std::vector<ViewRequest> view_requests = {};
+
+  // Extent of whichever view is bound to `camera_entity`, falling back to the first requested view
+  // and then to a fixed default so a headless tick still produces sane projection matrices.
+  auto viewport_extent_for(this const Scene& self, flecs::entity camera_entity) -> glm::uvec2;
+
   SlotMap<MeshInstance, MeshInstanceID> mesh_instances = {};
   ankerl::unordered_dense::map<flecs::entity, MeshInstanceID> entity_to_mesh_instance_map = {};
-
-  SlotMap<GPU::Light, GPU::LightID> lights = {};
 
   bool meshes_dirty = false;
   u32 gpu_mesh_instance_count = 0;
