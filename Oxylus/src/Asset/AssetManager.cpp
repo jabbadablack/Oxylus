@@ -5,6 +5,7 @@
 #include <vuk/vsl/Core.hpp>
 #include <zpp_bits.h>
 
+#include "Asset/Texture.hpp"
 #include "Memory/Hasher.hpp"
 #include "Memory/Stack.hpp"
 #include "OS/File.hpp"
@@ -13,7 +14,7 @@
 #include "Utils/Log.hpp"
 
 namespace ox {
-AssetManager::AssetManager() = default;
+AssetManager::AssetManager() : texture_map(std::make_unique<SlotMap<Texture, TextureID>>()) {}
 AssetManager::~AssetManager() = default;
 
 auto begin_asset_meta(JsonWriter& writer, const UUID& uuid, AssetType type) -> void {
@@ -111,7 +112,7 @@ auto AssetManager::deinit(this AssetManager& self) -> std::expected<void, std::s
   self.asset_registry.clear();
   self.dirty_materials.clear();
   self.model_map.reset();
-  self.texture_map.reset();
+  self.texture_map->reset();
   self.material_map.reset();
   self.scene_map.reset();
   self.audio_map.reset();
@@ -648,21 +649,21 @@ auto AssetManager::load_texture(this AssetManager& self, const std::filesystem::
     .is_srgb = info.is_srgb,
     .target_width = info.target_width,
     .target_height = info.target_height,
-    .sampler_info = info.sampler_info,
+    .sampler = info.sampler,
   });
   if (!texture) {
     return TextureID::Invalid;
   }
 
   auto write_lock = std::unique_lock(self.textures_mutex);
-  return self.texture_map.create_slot(std::move(texture));
+  return self.texture_map->create_slot(std::move(texture));
 }
 
 auto AssetManager::unload_texture(this AssetManager& self, ReadGuard<Asset> asset) -> bool {
   ZoneScoped;
 
   auto read_lock = std::shared_lock(self.textures_mutex);
-  auto* texture = self.texture_map.slot(asset->texture_id);
+  auto* texture = self.texture_map->slot(asset->texture_id);
   if (!texture) {
     return false;
   }
@@ -672,7 +673,7 @@ auto AssetManager::unload_texture(this AssetManager& self, ReadGuard<Asset> asse
   read_lock.unlock();
   auto write_lock = std::unique_lock(self.textures_mutex);
 
-  self.texture_map.destroy_slot(asset->texture_id);
+  self.texture_map->destroy_slot(asset->texture_id);
   asset->texture_id = TextureID::Invalid;
 
   return true;
@@ -852,12 +853,24 @@ auto AssetManager::get_texture(this AssetManager& self, const TextureID texture_
   if (texture_id == TextureID::Invalid)
     return {};
   self.textures_mutex.lock_shared();
-  auto* texture = self.texture_map.slot(texture_id);
+  auto* texture = self.texture_map->slot(texture_id);
   if (!texture) {
     self.textures_mutex.unlock_shared();
     return {};
   }
   return ReadGuard<Texture>(self.textures_mutex, texture, adopt_lock);
+}
+
+auto AssetManager::get_texture_extent(this AssetManager& self, const UUID& uuid) -> glm::uvec2 {
+  ZoneScoped;
+
+  const auto texture = self.get_texture(uuid);
+  if (!texture) {
+    return {};
+  }
+
+  const auto extent = texture->get_extent();
+  return glm::uvec2(extent.width, extent.height);
 }
 
 auto AssetManager::get_null_material(this AssetManager& self) -> ReadGuard<Asset> {

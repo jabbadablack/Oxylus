@@ -10,6 +10,7 @@
 #include "Render/RenderContext.hpp"
 #include "Render/Renderer.hpp"
 #include "Render/Window.hpp"
+#include "Scripting/LuaClientBindings.hpp"
 #include "UI/ImGuiRenderer.hpp"
 #include "Utils/Profiler.hpp"
 
@@ -32,6 +33,10 @@ App::App(int argc, char** argv) {
   Log::init(argc, argv);
 
   instance_->command_line_args = AppCommandLineArgs{argc, argv};
+
+  // Built here rather than in init(): with<T>() runs against the builder before init(), and
+  // simulation modules have to have somewhere to land.
+  sim_host = std::make_unique<SimHost>(vfs, job_manager, event_system, timestep);
 }
 
 App::~App() {
@@ -77,13 +82,24 @@ auto App::init(this App& self) -> void {
   else
     OX_LOG_ERROR("Failed to initalize EventSystem: {}", event_system_init_result.error());
 
+  if (const auto sim_init_result = self.sim_host->init(); !sim_init_result.has_value()) {
+    OX_LOG_ERROR("Failed to initalize simulation: {}", sim_init_result.error());
+  }
+
   self.registry.init();
+
+  // Presentation-side Lua bindings are handed to the simulation's LuaManager once the modules they
+  // name actually exist.
+  bind_client_lua_bindings();
 
   self.job_manager.wait();
 }
 
 auto App::step(this App& self) -> void {
-  const i32 frame_limit = self.frame_limit > 0 ? self.frame_limit : self.render_context->context_cvar.cvar_frame_limit.get();
+  // render_context only exists when a Renderer module was registered; a headless App has none.
+  const auto configured_frame_limit = self.render_context ? self.render_context->context_cvar.cvar_frame_limit.get()
+                                                          : 0;
+  const i32 frame_limit = self.frame_limit > 0 ? self.frame_limit : configured_frame_limit;
   if (frame_limit > 0) {
     self.timestep.set_max_frame_time(1000.0 / static_cast<f64>(frame_limit));
   } else {
@@ -138,7 +154,13 @@ void App::stop(this App& self) {
     self.render_context->wait();
   }
 
+  // Presentation first, then simulation - the mirror of init, so nothing tears down a module its
+  // dependents are still using.
   self.registry.deinit();
+  if (const auto sim_deinit_result = self.sim_host->deinit(); !sim_deinit_result.has_value()) {
+    OX_LOG_ERROR("Failed to deinitalize simulation: {}", sim_deinit_result.error());
+  }
+
   self.job_manager.wait();
   self.run_deferred_tasks();
 

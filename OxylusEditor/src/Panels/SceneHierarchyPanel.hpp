@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vuk/ImageAttachment.hpp>
+
 #include "EditorPanelState.hpp"
 #include "UI/SceneHierarchyViewer.hpp"
 #include "Utils/SceneManager.hpp"

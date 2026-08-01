@@ -11,6 +11,9 @@ class LuaManager {
 public:
   constexpr static auto MODULE_NAME = "LuaManager";
 
+  // Simulation-side: App::with<T>() and App::mod<T>() route this to SimHost.
+  constexpr static bool SIM_MODULE = true;
+
   auto init(this LuaManager& self) -> std::expected<void, std::string>;
   auto deinit(this LuaManager& self) -> std::expected<void, std::string>;
 

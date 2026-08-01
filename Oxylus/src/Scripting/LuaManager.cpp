@@ -1,24 +1,22 @@
 ﻿#include "Scripting/LuaManager.hpp"
 
+#include <glm/vec2.hpp>
+#include <glm/vec3.hpp>
+#include <glm/vec4.hpp>
 #include <sol/sol.hpp>
 
-#include "Core/App.hpp"
+#include "Core/VFS.hpp"
 #include "OS/File.hpp"
 #include "Scripting/LuaNetworkBindings.hpp"
+#include "Sim/SimHost.hpp"
 
 #ifdef OX_LUA_BINDINGS
-  #include "Scripting/LuaApplicationBindings.hpp"  // IWYU pragma: export
   #include "Scripting/LuaAssetManagerBindings.hpp" // IWYU pragma: export
   #include "Scripting/LuaAudioBindings.hpp"        // IWYU pragma: export
-  #include "Scripting/LuaDebugBindings.hpp"        // IWYU pragma: export
   #include "Scripting/LuaFlecsBindings.hpp"        // IWYU pragma: export
-  #include "Scripting/LuaInputBindings.hpp"        // IWYU pragma: export
   #include "Scripting/LuaMathBindings.hpp"         // IWYU pragma: export
   #include "Scripting/LuaPhysicsBindings.hpp"      // IWYU pragma: export
-  #include "Scripting/LuaRMLBindings.hpp"          // IWYU pragma: export
-  #include "Scripting/LuaRendererBindings.hpp"     // IWYU pragma: export
   #include "Scripting/LuaSceneBindings.hpp"        // IWYU pragma: export
-  #include "Scripting/LuaUIBindings.hpp"           // IWYU pragma: export
   #include "Scripting/LuaVFSBindings.hpp"          // IWYU pragma: export
 #endif
 
@@ -39,7 +37,7 @@ auto LuaManager::init(this LuaManager& self) -> std::expected<void, std::string>
     "require_script",
     [s = self.state.get()](const std::string& virtual_dir, const std::string& path) -> sol::object {
       ZoneScopedN("LuaRequire");
-      auto& vfs = App::get_vfs();
+      auto& vfs = SimHost::get_vfs();
       auto physical_path = vfs.resolve_physical_dir(virtual_dir, path);
       auto script = File::to_string(physical_path);
       return s->require_script(path, script);
@@ -51,19 +49,16 @@ auto LuaManager::init(this LuaManager& self) -> std::expected<void, std::string>
 #ifdef OX_LUA_BINDINGS
   self.bind_log();
   self.bind_vector();
-  BIND(AppBinding);
+  // Simulation bindings only. The presentation ones - App modules, Input, Debug draw, Renderer,
+  // RmlUi, UI - are registered by bind_client_lua_bindings() once the client is up, because they
+  // name types that do not exist on this side of the boundary.
   BIND(AssetManagerBinding);
   BIND(AudioBinding);
-  BIND(DebugBinding);
   BIND(FlecsBinding);
-  BIND(InputBinding);
   BIND(MathBinding);
   BIND(PhysicsBinding);
-  BIND(RendererBinding);
   BIND(SceneBinding);
-  BIND(UIBinding);
   BIND(VFSBinding);
-  BIND(RMLBinding);
   BIND(NetworkBinding);
 #endif
 

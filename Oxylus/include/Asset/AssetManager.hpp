@@ -8,7 +8,7 @@
 #include "Asset/Fwd.hpp"
 #include "Asset/Material.hpp"
 #include "Asset/Model.hpp"
-#include "Asset/Texture.hpp"
+#include "Asset/TextureLoadInfo.hpp"
 #include "Core/UUID.hpp"
 #include "Memory/ReadGuard.hpp"
 #include "Memory/SlotMap.hpp"
@@ -47,6 +47,9 @@ using AssetRegistry = ankerl::unordered_dense::map<UUID, Asset>;
 class AssetManager {
 public:
   constexpr static auto MODULE_NAME = "AssetManager";
+
+  // Simulation-side: App::with<T>() and App::mod<T>() route this to SimHost.
+  constexpr static bool SIM_MODULE = true;
 
   // Declared here and defaulted in the .cpp: the scene and script slot maps hold unique_ptrs to
   // types this header only forward-declares, so the destructor must be instantiated where they are
@@ -108,6 +111,9 @@ public:
 
   auto get_texture(this AssetManager& self, const UUID& uuid) -> ReadGuard<Texture>;
   auto get_texture(this AssetManager& self, TextureID texture_id) -> ReadGuard<Texture>;
+  // Pixel dimensions as plain numbers. A texture's size is asset metadata, so simulation code can
+  // ask for it without holding a Texture - which owns vuk images and cannot cross the boundary.
+  auto get_texture_extent(this AssetManager& self, const UUID& uuid) -> glm::uvec2;
 
   auto get_null_material(this AssetManager& self) -> ReadGuard<Asset>;
   auto get_material(this AssetManager& self, const UUID& uuid) -> ReadGuard<Material>;
@@ -159,7 +165,10 @@ private:
   std::vector<MaterialID> dirty_materials = {};
 
   SlotMap<Model, ModelID> model_map = {};
-  SlotMap<Texture, TextureID> texture_map = {};
+  // Behind a pointer so this header only needs a forward declaration of Texture: Texture owns vuk
+  // images, and every consumer of the asset manager would otherwise be forced to include vuk. Built
+  // in the constructor, where the type is complete.
+  std::unique_ptr<SlotMap<Texture, TextureID>> texture_map;
   SlotMap<Material, MaterialID> material_map = {};
   // No `= {}` on these two: a default member initializer would instantiate the slot map's default
   // constructor here, where Scene and LuaSystem are still incomplete. The defaulted AssetManager

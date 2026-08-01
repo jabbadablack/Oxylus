@@ -28,15 +28,23 @@ if(NOT OX_LUA_BINDINGS)
 endif()
 
 # Directories that belong wholly to the simulation.
-# Physics/, Scene/ and Scripting/ are not here yet, and no longer for header reasons - Scene.hpp is
-# vuk-free as of Phase 5. What blocks them now is that their .cpp files reach App::mod<T>() and
-# App::get_job_manager(), and Core/App.hpp owns the window and render context. SimHost (Phase 7) is
-# what gives simulation code a service handle that is not App.
-set(OX_SIM_DIR_RE "/src/(Memory|OS|Audio|Sim)/")
+set(OX_SIM_DIR_RE "/src/(Memory|OS|Audio|Sim|Physics|Scene|Networking)/")
 
 # Files from split directories that are simulation-side today. Everything not matched here or by
 # OX_SIM_DIR_RE lands in the presentation target.
+# Scripting splits: the engine bindings are simulation-side, the ones that bind presentation
+# modules (Renderer, ImGui, RmlUi, UI) stay with the client.
 set(OX_SIM_FILES
+  src/Scripting/LuaManager.cpp
+  src/Scripting/LuaSystem.cpp
+  src/Scripting/LuaAssetManagerBindings.cpp
+  src/Scripting/LuaAudioBindings.cpp
+  src/Scripting/LuaFlecsBindings.cpp
+  src/Scripting/LuaMathBindings.cpp
+  src/Scripting/LuaNetworkBindings.cpp
+  src/Scripting/LuaPhysicsBindings.cpp
+  src/Scripting/LuaSceneBindings.cpp
+  src/Scripting/LuaVFSBindings.cpp
   src/Core/EventSystem.cpp
   src/Core/JobManager.cpp
   src/Core/ModuleRegistry.cpp

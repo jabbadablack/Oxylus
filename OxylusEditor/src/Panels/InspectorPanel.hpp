@@ -1,6 +1,7 @@
 #pragma once
 
 #include <flecs.h>
+#include <vuk/ImageAttachment.hpp>
 
 #include "Asset/AssetManager.hpp"
 #include "Core/UUID.hpp"

@@ -43,6 +43,13 @@ struct ankerl::unordered_dense::hash<flecs::entity> {
 
 namespace ox {
 struct JsonWriter;
+class Scene;
+
+// Emitted when a scene leaves play mode. The presentation side uses it to hide UI documents,
+// which used to be done from inside Scene::runtime_stop.
+struct SceneRuntimeStopEvent {
+  Scene* scene = nullptr;
+};
 
 struct ComponentDB {
   std::vector<flecs::id> components = {};

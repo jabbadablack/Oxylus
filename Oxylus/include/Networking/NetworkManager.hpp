@@ -24,6 +24,9 @@ enum class NetEventKind : u32 {
 struct NetworkManager {
   constexpr static auto MODULE_NAME = "NetworkManager";
 
+  // Simulation-side: App::with<T>() and App::mod<T>() route this to SimHost.
+  constexpr static bool SIM_MODULE = true;
+
   TLSFAllocator allocator = {};
   ankerl::svector<std::unique_ptr<NetServer>, 1> servers = {};
   ankerl::svector<std::unique_ptr<NetClient>, 1> clients = {};

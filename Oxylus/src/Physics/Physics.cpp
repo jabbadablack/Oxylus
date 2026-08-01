@@ -7,8 +7,9 @@
 #include <Jolt/RegisterTypes.h>
 #include <cstdarg>
 
-#include "Core/App.hpp"
+#include "Core/JobManager.hpp"
 #include "Physics/RayCast.hpp"
+#include "Sim/SimHost.hpp"
 #include "Utils/Log.hpp"
 #include "Utils/OxMath.hpp"
 
@@ -33,7 +34,7 @@ static bool AssertFailedImpl(const char* inExpression, const char* inMessage, co
 class JoltJobSystem final : public JPH::JobSystemWithBarrier {
 public:
   auto GetMaxConcurrency() const -> int override {
-    auto& job_man = App::get_job_manager();
+    auto& job_man = SimHost::get_job_manager();
     return job_man.get_thread_count();
   }
 
@@ -50,7 +51,7 @@ public:
 
 protected:
   auto QueueJob(Job* job) -> void override {
-    auto& job_man = App::get_job_manager();
+    auto& job_man = SimHost::get_job_manager();
     job->AddRef();
     job_man.submit(ox::Job::create([job] {
       job->Execute();

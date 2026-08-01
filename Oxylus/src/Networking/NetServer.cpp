@@ -2,8 +2,9 @@
 
 #include <enet.h>
 
-#include "Core/App.hpp"
 #include "Core/Base.hpp"
+#include "Core/EventSystem.hpp"
+#include "Sim/SimHost.hpp"
 #include "Utils/Log.hpp"
 
 namespace ox {
@@ -34,7 +35,7 @@ auto NetServer::tick(this NetServer& self, const Timestep& ts) -> bool {
           client_id = static_cast<NetClientID>(reinterpret_cast<uptr>(remote_peer->data));
         }
 
-        auto& es = App::get_event_system();
+        auto& es = SimHost::get_event_system();
         std::ignore = es.emit<ClientDisconnectEvent>({.client_id = client_id});
 
         self.on_client_disconnect(client_id);
@@ -96,7 +97,7 @@ auto NetServer::handle_packet(this NetServer& self, ENetPeer* remote_peer, NetPa
         client->send_reliable(accept_handshake_packet.value());
       }
 
-      auto& es = App::get_event_system();
+      auto& es = SimHost::get_event_system();
       std::ignore = es.emit<ClientConnectEvent>({.client_id = client_id});
 
       self.on_client_connect(client_id);
@@ -117,7 +118,7 @@ auto NetServer::handle_packet(this NetServer& self, ENetPeer* remote_peer, NetPa
         return;
       }
 
-      auto& es = App::get_event_system();
+      auto& es = SimHost::get_event_system();
       std::ignore = es.emit<ClientAckEvent>(ClientAckEvent(client_id, client_ack.value()));
 
       self.on_client_ack(client_id, client_ack.value());

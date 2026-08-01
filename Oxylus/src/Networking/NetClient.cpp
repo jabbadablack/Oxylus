@@ -1,7 +1,8 @@
 #include "Networking/NetClient.hpp"
 
-#include "Core/App.hpp"
 #include "Core/Base.hpp"
+#include "Core/EventSystem.hpp"
+#include "Sim/SimHost.hpp"
 #include "Utils/Log.hpp"
 
 #ifndef ENET_FEATURE_ADDRESS_MAPPING
@@ -154,7 +155,7 @@ auto NetClient::handle_packet(this NetClient& self, NetPacket& packet) -> void {
       }
 
       // TODO: Copying the whole scene snapshot...
-      auto& es = App::get_event_system();
+      auto& es = SimHost::get_event_system();
       std::ignore = es.emit<ClientSceneSnapshotEvent>(ClientSceneSnapshotEvent(snapshot->sequence, snapshot->state));
 
       self.on_scene_snapshot(snapshot->sequence, std::move(snapshot->state));

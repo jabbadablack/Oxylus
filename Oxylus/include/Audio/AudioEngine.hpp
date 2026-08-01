@@ -3,6 +3,7 @@
 #include <expected>
 #include <glm/ext/vector_float3.hpp>
 #include <string>
+
 #include "Core/Types.hpp"
 struct ma_engine;
 struct ma_sound;
@@ -12,6 +13,9 @@ namespace ox {
 class AudioEngine {
 public:
   constexpr static auto MODULE_NAME = "AudioEngine";
+
+  // Simulation-side: App::with<T>() and App::mod<T>() route this to SimHost.
+  constexpr static bool SIM_MODULE = true;
 
   enum AttenuationModelType : u32 { None = 0, Inverse, Linear, Exponential };
 

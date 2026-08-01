@@ -839,6 +839,39 @@ auto RenderContext::image_view(const ImageViewID id) -> vuk::ImageView {
   return *view;
 }
 
+auto to_vuk_filter(const TextureFilter filter) -> vuk::Filter {
+  return filter == TextureFilter::Nearest ? vuk::Filter::eNearest : vuk::Filter::eLinear;
+}
+
+auto to_vuk_mip_filter(const TextureMipFilter filter) -> vuk::SamplerMipmapMode {
+  return filter == TextureMipFilter::Nearest ? vuk::SamplerMipmapMode::eNearest : vuk::SamplerMipmapMode::eLinear;
+}
+
+auto to_vuk_address_mode(const TextureAddressMode mode) -> vuk::SamplerAddressMode {
+  switch (mode) {
+    case TextureAddressMode::MirroredRepeat: return vuk::SamplerAddressMode::eMirroredRepeat;
+    case TextureAddressMode::ClampToEdge   : return vuk::SamplerAddressMode::eClampToEdge;
+    case TextureAddressMode::ClampToBorder : return vuk::SamplerAddressMode::eClampToBorder;
+    case TextureAddressMode::Repeat        :
+    default                                : return vuk::SamplerAddressMode::eRepeat;
+  }
+}
+
+auto RenderContext::allocate_sampler(const SamplerDescription& description) -> SamplerID {
+  ZoneScoped;
+
+  return allocate_sampler(
+    vuk::SamplerCreateInfo{
+      .magFilter = to_vuk_filter(description.mag_filter),
+      .minFilter = to_vuk_filter(description.min_filter),
+      .mipmapMode = to_vuk_mip_filter(description.mip_filter),
+      .addressModeU = to_vuk_address_mode(description.address_u),
+      .addressModeV = to_vuk_address_mode(description.address_v),
+      .addressModeW = to_vuk_address_mode(description.address_w),
+    }
+  );
+}
+
 auto RenderContext::allocate_sampler(const vuk::SamplerCreateInfo& sampler_info) -> SamplerID {
   ZoneScoped;
 

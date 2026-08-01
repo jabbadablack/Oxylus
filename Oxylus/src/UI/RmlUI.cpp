@@ -4,6 +4,7 @@
 #include <RmlUi/Debugger.h>
 
 #include "Core/App.hpp"
+#include "Scene/Scene.hpp"
 
 namespace ox {
 auto RmlUI::init() -> std::expected<void, std::string> {
@@ -47,15 +48,36 @@ auto RmlUI::init() -> std::expected<void, std::string> {
 
   this->rml_renderer.set_white_texture(white_texture.view());
 
+  this->scene_stop_handler = App::get_event_system()
+                               .subscribe<SceneRuntimeStopEvent>([this](const SceneRuntimeStopEvent&) {
+                                 this->hide_all_documents();
+                               })
+                               .value_or(0);
+
   return {};
 }
 
 auto RmlUI::deinit() -> std::expected<void, std::string> {
   ZoneScoped;
 
+  std::ignore = App::get_event_system().unsubscribe<SceneRuntimeStopEvent>(this->scene_stop_handler);
+
   Rml::Shutdown();
 
   return {};
+}
+
+auto RmlUI::hide_all_documents(this RmlUI& self) -> void {
+  ZoneScoped;
+
+  for (auto* ctx : self.get_contexts()) {
+    const auto doc_count = ctx->GetNumDocuments();
+    for (i32 i = 0; i < doc_count; i++) {
+      if (auto* doc = ctx->GetDocument(i)) {
+        doc->Hide();
+      }
+    }
+  }
 }
 
 auto RmlUI::update(const Timestep& timestep) -> void {

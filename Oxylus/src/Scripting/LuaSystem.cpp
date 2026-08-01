@@ -5,9 +5,9 @@
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <sol/state.hpp>
 
-#include "Core/App.hpp"
 #include "Scene/Scene.hpp"
 #include "Scripting/LuaManager.hpp"
+#include "Sim/SimHost.hpp"
 
 namespace ox {
 LuaSystem::LuaSystem(std::string path) : file_path(std::move(path)) {
@@ -33,7 +33,7 @@ auto LuaSystem::init_script(
   self.file_path = path;
   self.script_ = script;
 
-  const auto state = App::mod<LuaManager>().get_state();
+  const auto state = SimHost::mod<LuaManager>().get_state();
 
   if (self.environment)
     self.environment.reset();

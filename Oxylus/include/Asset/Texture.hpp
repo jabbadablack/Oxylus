@@ -7,14 +7,13 @@
 #include <vuk/runtime/vk/Query.hpp>
 
 #include "Asset/Fwd.hpp"
+#include "Asset/TextureLoadInfo.hpp"
 #include "Core/Types.hpp"
 #include "Render/RenderContext.hpp"
 
 using Preset = vuk::ImageAttachment::Preset;
 
 namespace ox {
-
-using TextureDataSource = std::variant<std::filesystem::path, std::span<const u8>>;
 
 enum class TextureSourceType : u32 {
   Generic = 0,
@@ -33,22 +32,6 @@ struct TextureCreateInfo {
   vuk::ImageUsageFlags usage = {};
   vuk::ImageViewCreateFlags image_view_flags = {};
   vuk::ImageViewType view_type = vuk::ImageViewType::e2D;
-  vuk::SamplerCreateInfo sampler_info = {
-    .magFilter = vuk::Filter::eLinear,
-    .minFilter = vuk::Filter::eLinear,
-    .mipmapMode = vuk::SamplerMipmapMode::eLinear,
-    .addressModeU = vuk::SamplerAddressMode::eRepeat,
-    .addressModeV = vuk::SamplerAddressMode::eRepeat,
-    .addressModeW = vuk::SamplerAddressMode::eRepeat,
-  };
-};
-
-struct TextureLoadInfo {
-  TextureDataSource source = {};
-  u32 level_count = 1;
-  bool is_srgb = true;
-  option<u32> target_width = nullopt;
-  option<u32> target_height = nullopt;
   vuk::SamplerCreateInfo sampler_info = {
     .magFilter = vuk::Filter::eLinear,
     .minFilter = vuk::Filter::eLinear,

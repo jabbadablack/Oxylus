@@ -1,7 +1,7 @@
 #pragma once
 
 #include <glm/gtx/quaternion.hpp>
-#include <vuk/Buffer.hpp>
+#include <memory>
 
 #include "Asset/Fwd.hpp"
 #include "Asset/MeshInstance.hpp"
@@ -45,7 +45,9 @@ struct Model {
   std::vector<u32> lod0_meshlet_counts = {};
   std::vector<GPU::Mesh> gpu_meshes = {};
   std::vector<option<u32>> material_indices = {}; // these are per mesh, not per MeshGroup
-  std::vector<vuk::Unique<vuk::Buffer>> gpu_mesh_buffers = {};
+  // Opaque GPU residency (Render/ModelGPU.hpp). Held here so the buffers live exactly as long as
+  // the model, but typed only on the presentation side - see ModelGPU for why that works.
+  std::shared_ptr<void> gpu_resources = {};
 
   usize default_scene_index = 0;
 

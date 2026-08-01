@@ -9,8 +9,10 @@
 #include <vuk/vsl/Core.hpp>
 
 #include "Asset/AssetManager.hpp"
+#include "Asset/Texture.hpp"
 #include "Core/App.hpp"
 #include "Memory/Stack.hpp"
+#include "Render/ModelGPU.hpp"
 
 template <>
 struct fastgltf::ElementTraits<glm::vec4> : fastgltf::ElementTraitsBase<glm::vec4, AccessorType::Vec4, float> {};
@@ -71,43 +73,46 @@ auto gltf_mime_type_to_texture_mime_type(fastgltf::MimeType mime) -> TextureSour
   }
 }
 
-auto gltf_sampler_to_sampler(const fastgltf::Sampler& gltf_sampler) -> vuk::SamplerCreateInfo {
-  auto get_address_mode = [](fastgltf::Wrap v) -> vuk::SamplerAddressMode {
+auto gltf_sampler_to_sampler(const fastgltf::Sampler& gltf_sampler) -> SamplerDescription {
+  auto get_address_mode = [](fastgltf::Wrap v) -> TextureAddressMode {
     switch (v) {
-      case fastgltf::Wrap::ClampToEdge   : return vuk::SamplerAddressMode::eClampToEdge;
-      case fastgltf::Wrap::MirroredRepeat: return vuk::SamplerAddressMode::eMirroredRepeat;
-      case fastgltf::Wrap::Repeat        : return vuk::SamplerAddressMode::eRepeat;
+      case fastgltf::Wrap::ClampToEdge   : return TextureAddressMode::ClampToEdge;
+      case fastgltf::Wrap::MirroredRepeat: return TextureAddressMode::MirroredRepeat;
+      case fastgltf::Wrap::Repeat        : return TextureAddressMode::Repeat;
     }
+    return TextureAddressMode::Repeat;
   };
 
-  auto get_filter_mode = [](fastgltf::Filter v) -> vuk::Filter {
-    switch (v) {
-      case fastgltf::Filter::Nearest:
-      case fastgltf::Filter::NearestMipMapNearest:
-      case fastgltf::Filter::NearestMipMapLinear : return vuk::Filter::eNearest;
-      case fastgltf::Filter::Linear              :
-      case fastgltf::Filter::LinearMipMapNearest :
-      case fastgltf::Filter::LinearMipMapLinear  : return vuk::Filter::eLinear;
-    }
-  };
-
-  auto get_mip_filter_mode = [](fastgltf::Filter v) -> vuk::SamplerMipmapMode {
+  auto get_filter_mode = [](fastgltf::Filter v) -> TextureFilter {
     switch (v) {
       case fastgltf::Filter::Nearest:
       case fastgltf::Filter::NearestMipMapNearest:
-      case fastgltf::Filter::NearestMipMapLinear : return vuk::SamplerMipmapMode::eNearest;
+      case fastgltf::Filter::NearestMipMapLinear : return TextureFilter::Nearest;
       case fastgltf::Filter::Linear              :
       case fastgltf::Filter::LinearMipMapNearest :
-      case fastgltf::Filter::LinearMipMapLinear  : return vuk::SamplerMipmapMode::eLinear;
+      case fastgltf::Filter::LinearMipMapLinear  : return TextureFilter::Linear;
     }
+    return TextureFilter::Linear;
   };
 
-  return vuk::SamplerCreateInfo{
-    .magFilter = get_filter_mode(gltf_sampler.magFilter.value_or(fastgltf::Filter::Linear)),
-    .minFilter = get_filter_mode(gltf_sampler.minFilter.value_or(fastgltf::Filter::Linear)),
-    .mipmapMode = get_mip_filter_mode(gltf_sampler.minFilter.value_or(fastgltf::Filter::Linear)),
-    .addressModeU = get_address_mode(gltf_sampler.wrapS),
-    .addressModeV = get_address_mode(gltf_sampler.wrapT),
+  auto get_mip_filter_mode = [](fastgltf::Filter v) -> TextureMipFilter {
+    switch (v) {
+      case fastgltf::Filter::Nearest:
+      case fastgltf::Filter::NearestMipMapNearest:
+      case fastgltf::Filter::NearestMipMapLinear : return TextureMipFilter::Nearest;
+      case fastgltf::Filter::Linear              :
+      case fastgltf::Filter::LinearMipMapNearest :
+      case fastgltf::Filter::LinearMipMapLinear  : return TextureMipFilter::Linear;
+    }
+    return TextureMipFilter::Linear;
+  };
+
+  return SamplerDescription{
+    .mag_filter = get_filter_mode(gltf_sampler.magFilter.value_or(fastgltf::Filter::Linear)),
+    .min_filter = get_filter_mode(gltf_sampler.minFilter.value_or(fastgltf::Filter::Linear)),
+    .mip_filter = get_mip_filter_mode(gltf_sampler.minFilter.value_or(fastgltf::Filter::Linear)),
+    .address_u = get_address_mode(gltf_sampler.wrapS),
+    .address_v = get_address_mode(gltf_sampler.wrapT),
   };
 }
 
@@ -412,7 +417,7 @@ auto load_gltf_texture(
 
   if (gltf_texture.samplerIndex.has_value()) {
     const auto& sampler = asset.samplers[gltf_texture.samplerIndex.value()];
-    texture_load_info.sampler_info = gltf_sampler_to_sampler(sampler);
+    texture_load_info.sampler = gltf_sampler_to_sampler(sampler);
   }
 
   self.load_asset(texture_uuid, std::move(texture_load_info), false);
@@ -541,6 +546,8 @@ auto AssetManager::load_model(this AssetManager& self, const std::filesystem::pa
     .materials = std::move(materials),
     .lights = std::move(lights),
   };
+  // Collected here and handed to the model as an opaque handle once every mesh has been uploaded.
+  auto model_gpu = std::make_shared<ModelGPU>();
   auto& gltf_default_scene = gltf_asset.scenes[gltf_asset.defaultScene.value_or(0_sz)];
   struct ProcessingNode {
     usize gltf_node_index = 0;
@@ -1005,9 +1012,11 @@ auto AssetManager::load_model(this AssetManager& self, const std::filesystem::pa
       }
       model.material_indices.push_back(mesh_material_index);
       model.gpu_meshes.push_back(gpu_mesh);
-      model.gpu_mesh_buffers.push_back(std::move(gpu_mesh_buffer));
+      model_gpu->mesh_buffers.push_back(std::move(gpu_mesh_buffer));
     }
   }
+
+  model.gpu_resources = std::move(model_gpu);
 
   auto write_lock = std::unique_lock(self.models_mutex);
   return self.model_map.create_slot(std::move(model));

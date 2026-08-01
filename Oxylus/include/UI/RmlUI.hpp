@@ -26,9 +26,15 @@ public:
   auto get_renderer(this RmlUI& self) -> RmlRenderer&;
 
   auto get_contexts(this RmlUI& self) -> std::vector<Rml::Context*>;
+
+  // Hides every open document. Driven by SceneRuntimeStopEvent: leaving play mode should tear the
+  // game's UI down, but the scene has no business knowing a UI toolkit exists.
+  auto hide_all_documents(this RmlUI& self) -> void;
   auto get_main_context(this const RmlUI& self) -> Rml::Context*;
 
 private:
+  u64 scene_stop_handler = 0;
+
   RmlRenderer rml_renderer = {};
   RmlSystem rml_system = {};
   Texture white_texture = {};

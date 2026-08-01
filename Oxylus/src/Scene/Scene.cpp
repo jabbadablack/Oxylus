@@ -16,15 +16,14 @@
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/TaperedCapsuleShape.h>
 // clang-format on
-#include <RmlUi/Core.h>
 #include <glm/gtx/compatibility.hpp>
 #include <glm/gtx/matrix_decompose.hpp>
-#include <meshoptimizer.h>
 #include <simdjson.h>
 #include <sol/state.hpp>
+#include <stack>
 
 #include "Asset/AssetManager.hpp"
-#include "Core/App.hpp"
+#include "Core/EventSystem.hpp"
 #include "Memory/Stack.hpp"
 #include "OS/File.hpp"
 #include "Physics/Physics.hpp"
@@ -33,7 +32,7 @@
 #include "Render/Camera.hpp"
 #include "Scene/EntitySerializer.hpp"
 #include "Scripting/LuaManager.hpp"
-#include "UI/RmlUI.hpp"
+#include "Sim/SimHost.hpp"
 #include "Utils/JsonWriter.hpp"
 #include "Utils/Random.hpp"
 #include "Utils/Timestep.hpp"
@@ -401,8 +400,8 @@ Scene::~Scene() {
 
   lua_systems.clear();
 
-  if (App::has_mod<LuaManager>()) {
-    auto& lua_manager = App::mod<LuaManager>();
+  if (SimHost::has_mod<LuaManager>()) {
+    auto& lua_manager = SimHost::mod<LuaManager>();
     lua_manager.get_state()->collect_gc();
   }
 }
@@ -413,7 +412,7 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
 
   self.component_db.import_module(self.world.import<CoreComponentsModule>());
 
-  auto& physics = App::mod<Physics>();
+  auto& physics = SimHost::mod<Physics>();
   self.physics_system = physics.new_system();
   self.physics_debug_renderer = physics.new_debug_renderer(self.debug_draw_list);
 
@@ -495,13 +494,13 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
         return;
       }
 
-      auto& asset_man = App::mod<AssetManager>();
+      auto& asset_man = SimHost::mod<AssetManager>();
       c.material = asset_man.create_asset(AssetType::Material, {});
       asset_man.load_asset(c.material);
     });
 
   self.world.observer<SpriteComponent>().event(flecs::OnRemove).each([](flecs::iter& it, usize i, SpriteComponent& c) {
-    auto& asset_man = App::mod<AssetManager>();
+    auto& asset_man = SimHost::mod<AssetManager>();
     if (it.event() == flecs::OnRemove) {
       // Must not hold a registry read guard across unload_asset(): it takes the registry
       // write lock (self-deadlock otherwise). unload_asset() no-ops on missing/unloaded.
@@ -513,7 +512,7 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
     .event(flecs::OnSet)
     .event(flecs::OnAdd)
     .each([](flecs::iter& it, usize i, AudioListenerComponent& c) {
-      auto& audio_engine = App::mod<AudioEngine>();
+      auto& audio_engine = SimHost::mod<AudioEngine>();
       audio_engine.set_listener_cone(c.listener_index, c.cone_inner_angle, c.cone_outer_angle, c.cone_outer_gain);
     });
 
@@ -521,12 +520,12 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
     .event(flecs::OnSet)
     .event(flecs::OnAdd)
     .each([](flecs::iter& it, usize i, AudioSourceComponent& c) {
-      auto& asset_man = App::mod<AssetManager>();
+      auto& asset_man = SimHost::mod<AssetManager>();
       auto audio_asset = asset_man.get_audio(c.audio_source);
       if (!audio_asset)
         return;
 
-      auto& audio_engine = App::mod<AudioEngine>();
+      auto& audio_engine = SimHost::mod<AudioEngine>();
       audio_engine.set_source_volume(audio_asset->get_source(), c.volume);
       audio_engine.set_source_pitch(audio_asset->get_source(), c.pitch);
       audio_engine.set_source_looping(audio_asset->get_source(), c.looping);
@@ -549,14 +548,14 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
     .each([](flecs::iter& it, usize i, SpriteAnimationComponent& c) { c.reset(); });
 
   self.world.observer<MeshComponent>().event(flecs::OnRemove).each([](flecs::iter& it, usize i, MeshComponent& c) {
-    auto& asset_man = App::mod<AssetManager>();
+    auto& asset_man = SimHost::mod<AssetManager>();
     asset_man.unload_asset(c.model_uuid);
   });
 
   self.world.observer<AudioSourceComponent>()
     .event(flecs::OnRemove)
     .each([](flecs::iter& it, usize i, AudioSourceComponent& c) {
-      auto& asset_man = App::mod<AssetManager>();
+      auto& asset_man = SimHost::mod<AssetManager>();
       asset_man.unload_asset(c.audio_source);
     });
 
@@ -612,7 +611,7 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
     .event(flecs::OnAdd)
     .event(flecs::OnRemove)
     .each([](flecs::iter& it, usize i, ParticleSystemComponent& c) {
-      auto& asset_man = App::mod<AssetManager>();
+      auto& asset_man = SimHost::mod<AssetManager>();
       if (it.event() == flecs::OnAdd) {
         if (c.play_on_awake) {
           c.system_time = 0.0f;
@@ -648,7 +647,7 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
   self.world.observer<ParticleSystemComponent>()
     .event(flecs::OnRemove)
     .each([](flecs::iter& it, usize i, ParticleSystemComponent& c) {
-      auto& asset_man = App::mod<AssetManager>();
+      auto& asset_man = SimHost::mod<AssetManager>();
       if (it.event() == flecs::OnRemove) {
         // See note in SpriteComponent OnRemove: never hold a read guard across unload_asset().
         asset_man.unload_asset(c.material);
@@ -666,7 +665,7 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
     .kind(flecs::PreUpdate)
     .each([&self](const flecs::entity& e, const TransformComponent& tc, AudioListenerComponent& ac) {
       if (ac.active) {
-        auto& audio_engine = App::mod<AudioEngine>();
+        auto& audio_engine = SimHost::mod<AudioEngine>();
         const glm::mat4 inverted = glm::inverse(self.get_world_transform(e));
         const glm::vec3 forward = normalize(glm::vec3(inverted[2]));
         audio_engine.set_listener_position(ac.listener_index, tc.position);
@@ -678,9 +677,9 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
   self.world.system<const TransformComponent, AudioSourceComponent>("audio_source_update")
     .kind(flecs::PreUpdate)
     .each([](const flecs::entity& e, const TransformComponent& tc, const AudioSourceComponent& ac) {
-      auto& asset_man = App::mod<AssetManager>();
+      auto& asset_man = SimHost::mod<AssetManager>();
       if (auto audio = asset_man.get_audio(ac.audio_source)) {
-        auto& audio_engine = App::mod<AudioEngine>();
+        auto& audio_engine = SimHost::mod<AudioEngine>();
         audio_engine.set_source_attenuation_model(
           audio->get_source(),
           static_cast<AudioEngine::AttenuationModelType>(ac.attenuation_model)
@@ -708,7 +707,7 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
     .tick_source(physics_tick_source)
     .run([&self](flecs::iter& it) {
       OX_CHECK_NULL(self.physics_system);
-      auto& p = App::mod<Physics>();
+      auto& p = SimHost::mod<Physics>();
       self.physics_system->Update(self.physics_interval, 1, p.get_temp_allocator(), p.get_job_system());
     });
 
@@ -967,7 +966,7 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
   self.world.system<SpriteComponent, SpriteAnimationComponent>("sprite_animation_update")
     .kind(flecs::PostUpdate)
     .each([](flecs::iter& it, size_t, SpriteComponent& sprite, SpriteAnimationComponent& sprite_animation) {
-      auto& asset_manager = App::mod<AssetManager>();
+      auto& asset_manager = SimHost::mod<AssetManager>();
       auto material = asset_manager.get_material(sprite.material);
 
       if (
@@ -1004,10 +1003,9 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
       const u32 frame_x = frame % sprite_animation.columns;
       const u32 frame_y = frame / sprite_animation.columns;
 
-      const auto albedo_texture = asset_manager.get_texture(material->albedo_texture);
       auto& uv_size = material->uv_size;
 
-      auto texture_size = glm::vec2(albedo_texture->get_extent().width, albedo_texture->get_extent().height);
+      const auto texture_size = glm::vec2(asset_manager.get_texture_extent(material->albedo_texture));
       uv_size = {
         sprite_animation.frame_size[0] * 1.f / texture_size[0],
         sprite_animation.frame_size[1] * 1.f / texture_size[1]
@@ -1104,19 +1102,9 @@ auto Scene::runtime_stop(this Scene& self) -> void {
     system->on_scene_stop(&self);
   }
 
-  if (App::has_mod<RmlUI>()) {
-    auto& rmlui = App::mod<RmlUI>();
-    auto rml_ctxs = rmlui.get_contexts();
-    for (auto* ctx : rml_ctxs) {
-      auto doc_count = ctx->GetNumDocuments();
-      for (i32 i = 0; i < doc_count; i++) {
-        auto doc = ctx->GetDocument(i);
-        if (doc) {
-          doc->Hide();
-        }
-      }
-    }
-  }
+  // Announce rather than act: hiding UI documents is presentation work, and the simulation should
+  // not know that a UI toolkit exists.
+  std::ignore = SimHost::get_event_system().emit(SceneRuntimeStopEvent{.scene = &self});
 }
 
 auto Scene::runtime_update(this Scene& self, const Timestep& delta_time) -> void {
@@ -1214,7 +1202,7 @@ auto Scene::get_lua_systems(this const Scene& self) -> const ankerl::unordered_d
 auto Scene::add_lua_system(this Scene& self, const UUID& lua_script) -> void {
   ZoneScoped;
 
-  auto& asset_man = App::mod<AssetManager>();
+  auto& asset_man = SimHost::mod<AssetManager>();
   if (!asset_man.get_asset(lua_script)->is_loaded()) {
     asset_man.load_asset(lua_script);
   }
@@ -1233,7 +1221,7 @@ auto Scene::add_lua_system(this Scene& self, const UUID& lua_script) -> void {
 auto Scene::remove_lua_system(this Scene& self, const UUID& lua_script) -> void {
   ZoneScoped;
 
-  auto& asset_man = App::mod<AssetManager>();
+  auto& asset_man = SimHost::mod<AssetManager>();
   auto script_system = asset_man.get_script(lua_script);
 
   script_system->on_remove(&self);
@@ -1308,7 +1296,7 @@ auto Scene::create_entity(const std::string& name, bool safe_naming) const -> fl
 auto Scene::create_model_entity(this Scene& self, const UUID& asset_uuid) -> flecs::entity {
   ZoneScoped;
 
-  auto& asset_man = App::mod<AssetManager>();
+  auto& asset_man = SimHost::mod<AssetManager>();
 
   // sanity check
   if (!asset_man.get_asset(asset_uuid)) {
@@ -1518,7 +1506,7 @@ auto Scene::attach_mesh(
 ) -> bool {
   ZoneScoped;
 
-  auto& asset_man = App::mod<AssetManager>();
+  auto& asset_man = SimHost::mod<AssetManager>();
 
   auto transforms_it = self.entity_transforms_map.find(entity);
   if (!self.entity_transforms_map.contains(entity)) {
@@ -2035,7 +2023,7 @@ auto Scene::from_json(this Scene& self, const std::string& json) -> bool {
   OX_LOG_INFO("Loading scene {} with {} assets...", self.scene_name, requested_assets.size());
 
   for (const auto& uuid : requested_assets) {
-    auto& asset_man = App::mod<AssetManager>();
+    auto& asset_man = SimHost::mod<AssetManager>();
     // Snapshot the type and release the read guard before load_asset()/add_lua_system(),
     // which re-lock the registry.
     auto asset_type = AssetType::None;

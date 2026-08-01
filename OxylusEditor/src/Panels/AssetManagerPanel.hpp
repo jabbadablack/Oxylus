@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vuk/ImageAttachment.hpp>
+
 #include "Panels/EditorPanelState.hpp"
 #include "UI/AssetManagerViewer.hpp"
 

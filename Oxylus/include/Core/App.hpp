@@ -7,6 +7,7 @@
 #include "Core/VFS.hpp"
 #include "Render/RenderContext.hpp"
 #include "Render/Window.hpp"
+#include "Sim/SimHost.hpp"
 #include "Utils/Timestep.hpp"
 
 namespace ox {
@@ -50,11 +51,17 @@ public:
     get()->pending_tasks.push_back(std::move(task));
   }
 
+  // Modules that declare SIM_MODULE live in the simulation host's registry instead of App's, so
+  // simulation code can reach them without including this header (and with it, vuk and SDL).
   template <typename T, typename... Args>
   auto with(this App& self, Args&&... args) -> App& {
     ZoneScoped;
 
-    self.registry.add<T>(std::forward<Args>(args)...);
+    if constexpr (requires { T::SIM_MODULE; }) {
+      self.sim_host->add<T>(std::forward<Args>(args)...);
+    } else {
+      self.registry.add<T>(std::forward<Args>(args)...);
+    }
 
     return self;
   }
@@ -68,14 +75,24 @@ public:
     return self;
   }
 
+  // Kept as the single spelling for presentation code: simulation modules are forwarded, so a
+  // caller does not have to know which side of the boundary a module lives on.
   template <typename T>
   static auto mod() -> T& {
-    return get()->registry.get<T>();
+    if constexpr (requires { T::SIM_MODULE; }) {
+      return SimHost::mod<T>();
+    } else {
+      return get()->registry.get<T>();
+    }
   }
 
   template <typename T>
   static auto has_mod() -> bool {
-    return get()->registry.has<T>();
+    if constexpr (requires { T::SIM_MODULE; }) {
+      return SimHost::has_mod<T>();
+    } else {
+      return get()->registry.has<T>();
+    }
   }
 
   auto with_frame_limit(this App& self, i32 frame_limit) -> App& {
@@ -112,6 +129,7 @@ private:
   JobManager job_manager = {};
   EventSystem event_system = {};
   ModuleRegistry registry = {};
+  std::unique_ptr<SimHost> sim_host = nullptr;
 
   Timestep timestep = {};
   i32 frame_limit = 0;

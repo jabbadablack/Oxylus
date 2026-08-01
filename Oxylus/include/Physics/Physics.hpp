@@ -17,6 +17,9 @@ class Physics {
 public:
   constexpr static auto MODULE_NAME = "Physics";
 
+  // Simulation-side: App::with<T>() and App::mod<T>() route this to SimHost.
+  constexpr static bool SIM_MODULE = true;
+
   static constexpr uint32_t MAX_BODIES = 1024;
   static constexpr uint32_t MAX_BODY_PAIRS = 1024;
   static constexpr uint32_t MAX_CONTACT_CONSTRAINS = 1024;

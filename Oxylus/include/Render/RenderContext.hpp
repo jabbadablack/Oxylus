@@ -8,6 +8,7 @@
 #include <vuk/runtime/vk/VkRuntime.hpp>
 
 #include "Asset/AssetFile.hpp"
+#include "Asset/SamplerDescription.hpp"
 #include "Core/Base.hpp"
 #include "Core/Option.hpp"
 #include "Memory/SlotMap.hpp"
@@ -109,6 +110,9 @@ public:
   auto image_view(const ImageViewID id) -> vuk::ImageView;
 
   auto allocate_sampler(const vuk::SamplerCreateInfo& sampler_info) -> SamplerID;
+  // The engine-side description is translated here; nothing outside the renderer needs vuk's
+  // sampler vocabulary.
+  auto allocate_sampler(const SamplerDescription& description) -> SamplerID;
   auto destroy_sampler(const SamplerID id) -> void;
   auto sampler(const SamplerID id) -> vuk::Sampler;
 

@@ -3,8 +3,8 @@
 #include "Scene/ComponentRegistry.hpp"
 
 #ifdef OX_LUA_BINDINGS
-  #include "Core/App.hpp"
   #include "Scripting/LuaManager.hpp"
+  #include "Sim/SimHost.hpp"
 #endif
 
 namespace ox {
@@ -14,7 +14,7 @@ CoreComponentsModule::CoreComponentsModule(flecs::world& world) {
   world.module<CoreComponentsModule>("Core");
 
 #ifdef OX_LUA_BINDINGS
-  auto* state = App::mod<LuaManager>().get_state();
+  auto* state = SimHost::mod<LuaManager>().get_state();
   auto registry = ComponentRegistry{world, state, state->create_named_table("Core")};
 #else
   auto registry = ComponentRegistry{world};
