@@ -1,67 +1,66 @@
 # The presentation half of the engine: renderer, windowing, input, UI.
 #
-# It links OxylusServerLib PUBLIC, so it inherits every shared compile definition, option and
-# include directory from the server half - which is where the ECS, physics, scripting, assets and
-# core services now live (see OxylusServer/CMakeLists.txt).
+# Same shape as the server half - each subsystem under this directory is its own library with its
+# own CMakeLists.txt and its own dependency declarations:
 #
-# The split is the directory layout, not a list in this file: anything under Oxylus/ is client-side
-# and may use vuk, SDL, ImGui and RmlUi freely.
+#   OxylusClientUtils   colour, ImGui scopes, TOML/JSON helpers, profiler  -- leaf
+#   OxylusClientLib     Asset + Core + Render + Scripting + UI
+#
+# Those five reference each other's symbols in a cycle - Render <-> Core, UI <-> Asset,
+# Render <-> UI and more - so they link as one shared library for the same reason the server
+# simulation group does. They keep their own directories and CMakeLists regardless.
+#
+# The split from the server half is the directory layout, not a list in this file: anything under
+# OxylusClient/ may use vuk, SDL, ImGui and RmlUi freely. OxylusClientLib links OxylusServerLib, so
+# it inherits the whole simulation side; nothing goes the other way.
+#
+# STATIC, unlike the server half, and deliberately. OxylusEditor is its own executable and uses vuk
+# types directly, so vuk ends up linked into whatever links the client - and vuk keeps process-wide
+# state behind globals (vuk::Name's intern pool, vuk::current_module). As a DLL that state would be
+# duplicated between the client library and the editor, and a vuk::Name interned on one side would
+# not match the pipeline map built on the other: std::out_of_range out of vuk, at the first frame.
+# vuk cannot be a DLL either (it exports global data with no dllimport macro), so the only
+# arrangement that leaves one copy is to let the client and the editor link into one binary.
+# The server half has no vuk, no SDL, no ImGui and no RmlUi, which is exactly why it can be DLLs.
 
-file(GLOB_RECURSE OX_CLIENT_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
+add_subdirectory(Utils)
+add_subdirectory(Asset)
+add_subdirectory(Core)
+add_subdirectory(Render)
+add_subdirectory(Scripting)
+add_subdirectory(UI)
 
-# The runtime executable entry point lives in the source tree but must not end up in the library,
-# the same way ResourceCompiler excludes cli.cpp from its glob.
-list(FILTER OX_CLIENT_SOURCES EXCLUDE REGEX "/src/Core/runtime\.cpp$")
+add_library(OxylusClientLib STATIC)
 
-if(NOT OX_LUA_BINDINGS)
-  list(FILTER OX_CLIENT_SOURCES EXCLUDE REGEX "/src/Scripting/[^/]*Bindings[^/]*\\.cpp$")
-endif()
+# The editor and every game link this name; it predates the split into modules and stays.
+add_library(ox::Oxylus ALIAS OxylusClientLib)
+add_library(ox::OxylusClientLib ALIAS OxylusClientLib)
+ox_configure_module(OxylusClientLib)
 
-add_library(Oxylus STATIC ${OX_CLIENT_SOURCES})
-add_library(ox::Oxylus ALIAS Oxylus)
-ox_configure_engine_target(Oxylus)
+# The target's own object files all arrive through the module libraries below.
+set_target_properties(OxylusClientLib PROPERTIES LINKER_LANGUAGE CXX)
 
-target_compile_features(Oxylus PUBLIC cxx_std_23)
-
-target_include_directories(Oxylus
-  PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/UI")
-
-target_link_libraries(Oxylus PUBLIC
-  OxylusServerLib
-  Vulkan::Headers
-  ox_stb
-  ox_imgui
-  fastgltf::fastgltf
-  meshoptimizer
-  SDL3::SDL3-static
-  ktx
-  vk-bootstrap::vk-bootstrap
-  vuk
-  RmlUi::RmlUi
-  RmlUi::Lua)
-
-# The client spawns this by name, so the name lives in one place.
-if(WIN32)
-  target_compile_definitions(Oxylus PRIVATE OX_SERVER_EXECUTABLE="OxylusServer.exe")
-else()
-  target_compile_definitions(Oxylus PRIVATE OX_SERVER_EXECUTABLE="OxylusServer")
-endif()
-
-ox_set_rpath(Oxylus)
+target_link_libraries(OxylusClientLib
+  PUBLIC
+    OxylusClientAssetObjects
+    OxylusClientCoreObjects
+    OxylusClientRenderObjects
+    OxylusClientScriptingObjects
+    OxylusClientUIObjects
+    OxylusClientUtils
+    ox::OxylusServerLib)
 
 # The game runtime, built by the client half rather than by a target of its own. It is App plus
 # DefaultModules with no Editor module - the difference between a game and the editor is one
 # module, which is the point.
-add_executable(OxylusRuntime "${CMAKE_CURRENT_SOURCE_DIR}/src/Core/runtime.cpp")
+add_executable(OxylusRuntime "${CMAKE_CURRENT_SOURCE_DIR}/Core/src/runtime.cpp")
 
 target_compile_features(OxylusRuntime PRIVATE cxx_std_23)
 set_target_properties(OxylusRuntime PROPERTIES
   CXX_EXTENSIONS OFF
+  OX_ENGINE_TARGET TRUE
   RUNTIME_OUTPUT_DIRECTORY "${OX_OUTPUT_DIR}")
 
 target_link_libraries(OxylusRuntime PRIVATE ox_project_options ox::Oxylus)
 
 ox_set_rpath(OxylusRuntime)
-
-source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${OX_CLIENT_SOURCES})

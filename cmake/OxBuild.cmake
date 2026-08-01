@@ -29,9 +29,19 @@ set_property(CACHE OX_CXX_RUNTIME PROPERTY STRINGS
   default libcxx-shared libcxx-static libstdcxx-shared libstdcxx-static)
 
 if(MSVC)
-  if(NOT CMAKE_MSVC_RUNTIME_LIBRARY)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-  endif()
+  # The DLL runtime, not the static one. The engine ships as a set of shared libraries that hand
+  # std::string, std::vector and std::shared_ptr across their boundaries constantly; with the
+  # static CRT every DLL carries its own copy of the allocator, so memory allocated in one and
+  # freed in another lands in the wrong heap. The symptom is a debug assertion in debug_heap.cpp,
+  # "__acrt_first_block == header", from whichever module happened to do the free. One CRT, one heap.
+  #
+  # Forced, and set as a normal variable on top of the cache entry, because this is not a preference
+  # the build can afford to lose: Jolt writes CMAKE_MSVC_RUNTIME_LIBRARY into the cache with FORCE
+  # (see USE_STATIC_MSVC_RUNTIME_LIBRARY in Dependencies.cmake), and a value left in the cache by an
+  # earlier configure otherwise survives and silently outranks whatever is set here.
+  set(_ox_msvc_runtime "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "${_ox_msvc_runtime}" CACHE STRING "MSVC runtime library" FORCE)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "${_ox_msvc_runtime}")
 else()
   if(OX_CXX_RUNTIME MATCHES "^libcxx")
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
@@ -51,18 +61,28 @@ else()
     add_link_options(-m64)
   endif()
   if(OX_COMPILER STREQUAL "clang")
-    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fexperimental-library>)
-    add_link_options(-fexperimental-library)
+    check_cxx_compiler_flag("-fexperimental-library" OX_HAS_FEXPERIMENTAL_LIBRARY)
+    if(OX_HAS_FEXPERIMENTAL_LIBRARY)
+      add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fexperimental-library>)
+      add_link_options(-fexperimental-library)
+    endif()
   endif()
 endif()
 
 if(MSVC)
   set(_ox_dist_cflags "/O2 /Ob3 /Oi /Gy /DNDEBUG")
   set(_ox_dist_ldflags "/INCREMENTAL:NO /OPT:REF /OPT:ICF")
-  string(REPLACE "/RTC1" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
-  string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
-  set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}" CACHE STRING "" FORCE)
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}" CACHE STRING "" FORCE)
+  # These are force-cached, so whatever they hold survives into the next configure. Strip the
+  # runtime-library flag as well as /RTC1: CMAKE_MSVC_RUNTIME_LIBRARY above is what picks the
+  # runtime, and a stale /MTd left in the cache from an earlier configure would quietly outrank it
+  # - which is exactly how you end up with one DLL on the static CRT and the rest on the dynamic
+  # one, each with its own heap.
+  foreach(_ox_flags IN ITEMS CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG)
+    string(REGEX REPLACE "[-/]M[TD]d?" "" ${_ox_flags} "${${_ox_flags}}")
+    string(REPLACE "/RTC1" "" ${_ox_flags} "${${_ox_flags}}")
+    string(STRIP "${${_ox_flags}}" ${_ox_flags})
+    set(${_ox_flags} "${${_ox_flags}}" CACHE STRING "" FORCE)
+  endforeach()
 elseif(APPLE)
   set(_ox_dist_cflags "-O3 -DNDEBUG -ffunction-sections -fdata-sections")
   set(_ox_dist_ldflags "-Wl,-dead_strip -Wl,-x")
@@ -86,12 +106,6 @@ mark_as_advanced(
 set(CMAKE_MAP_IMPORTED_CONFIG_DIST Dist Release RelWithDebInfo "")
 set(CMAKE_MAP_IMPORTED_CONFIG_DEBUG Debug Release RelWithDebInfo "")
 set(CMAKE_MAP_IMPORTED_CONFIG_RELEASE Release RelWithDebInfo "")
-
-if(CMAKE_BUILD_TYPE STREQUAL "Dist")
-  set(CMAKE_C_VISIBILITY_PRESET hidden)
-  set(CMAKE_CXX_VISIBILITY_PRESET hidden)
-  set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
-endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
   set(OX_PLAT windows)
@@ -125,36 +139,23 @@ endif()
 
 set(OX_ARTIFACT_ROOT "${CMAKE_SOURCE_DIR}/build/${OX_PLAT}/${OX_ARCH}")
 
-get_property(_ox_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
-if(_ox_multi_config)
-  set(OX_MODE "$<LOWER_CASE:$<CONFIG>>")
-  set(OX_OUTPUT_DIR "${OX_ARTIFACT_ROOT}/${OX_MODE}")
-  foreach(_cfg IN LISTS OX_BUILD_TYPES)
-    string(TOUPPER "${_cfg}" _CFG)
-    string(TOLOWER "${_cfg}" _cfg_lower)
-    set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${_CFG} "${OX_ARTIFACT_ROOT}/${_cfg_lower}")
-    set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${_CFG} "${OX_ARTIFACT_ROOT}/${_cfg_lower}")
-    set(CMAKE_PDB_OUTPUT_DIRECTORY_${_CFG} "${OX_ARTIFACT_ROOT}/${_cfg_lower}")
-    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${_CFG} "${CMAKE_BINARY_DIR}/lib/${_cfg_lower}")
-  endforeach()
-else()
-  string(TOLOWER "${CMAKE_BUILD_TYPE}" OX_MODE)
-  set(OX_OUTPUT_DIR "${OX_ARTIFACT_ROOT}/${OX_MODE}" CACHE INTERNAL "Oxylus artifact directory")
-  file(MAKE_DIRECTORY "${OX_OUTPUT_DIR}")
+string(TOLOWER "${CMAKE_BUILD_TYPE}" OX_MODE)
+set(OX_OUTPUT_DIR "${OX_ARTIFACT_ROOT}/${OX_MODE}" CACHE INTERNAL "Oxylus artifact directory")
+file(MAKE_DIRECTORY "${OX_OUTPUT_DIR}")
 
-  set(_ox_stamp "${OX_OUTPUT_DIR}/.ox-toolchain")
-  set(_ox_stamp_id "${OX_COMPILER}-${CMAKE_CXX_COMPILER_VERSION}-${OX_CXX_RUNTIME}")
-  if(EXISTS "${_ox_stamp}")
-    file(READ "${_ox_stamp}" _ox_stamp_prev)
-    string(STRIP "${_ox_stamp_prev}" _ox_stamp_prev)
-    if(NOT _ox_stamp_prev STREQUAL _ox_stamp_id)
-      message(FATAL_ERROR
-        "ox: ${OX_OUTPUT_DIR} was produced by '${_ox_stamp_prev}', now configuring '${_ox_stamp_id}'.\n"
-        "Remove that directory before switching toolchains.")
-    endif()
+set(_ox_stamp "${OX_OUTPUT_DIR}/.ox-toolchain")
+set(_ox_stamp_id
+  "${OX_COMPILER}-${CMAKE_CXX_COMPILER_VERSION}-${OX_CXX_RUNTIME}-${CMAKE_LINKER_TYPE}-${OX_FORCE_M64}-${OX_MARCH_NATIVE}")
+if(EXISTS "${_ox_stamp}")
+  file(READ "${_ox_stamp}" _ox_stamp_prev)
+  string(STRIP "${_ox_stamp_prev}" _ox_stamp_prev)
+  if(NOT _ox_stamp_prev STREQUAL _ox_stamp_id)
+    message(FATAL_ERROR
+      "ox: ${OX_OUTPUT_DIR} was produced by '${_ox_stamp_prev}', now configuring '${_ox_stamp_id}'.\n"
+      "Remove that directory before switching toolchains.")
   endif()
-  file(WRITE "${_ox_stamp}" "${_ox_stamp_id}")
 endif()
+file(WRITE "${_ox_stamp}" "${_ox_stamp_id}")
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${OX_OUTPUT_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${OX_OUTPUT_DIR}")
@@ -162,14 +163,20 @@ set(CMAKE_PDB_OUTPUT_DIRECTORY "${OX_OUTPUT_DIR}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
 function(_ox_add_supported_flags target scope)
+  set(_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
+  if(OX_COMPILER MATCHES "^clang")
+    set(CMAKE_REQUIRED_FLAGS "-Werror=unknown-warning-option -Werror=unused-command-line-argument")
+  else()
+    set(CMAKE_REQUIRED_FLAGS "-Werror")
+  endif()
   foreach(_flag IN LISTS ARGN)
     string(MAKE_C_IDENTIFIER "OX_HAS${_flag}" _var)
-    set(CMAKE_REQUIRED_FLAGS "-Werror=unknown-warning-option -Werror=unused-command-line-argument")
     check_cxx_compiler_flag("${_flag}" ${_var})
     if(${_var})
       target_compile_options(${target} ${scope} "${_flag}")
     endif()
   endforeach()
+  set(CMAKE_REQUIRED_FLAGS "${_saved_required_flags}")
 endfunction()
 
 add_library(ox_project_options INTERFACE)
@@ -194,6 +201,12 @@ _ox_add_supported_flags(ox_project_options INTERFACE
   -Wno-gnu-anonymous-struct
   -Wno-gnu-zero-variadic-macro-arguments
   -Wno-c2y-extensions)
+
+if(CMAKE_LINKER_TYPE AND CMAKE_VERSION VERSION_LESS 3.29)
+  message(WARNING
+    "ox: CMAKE_LINKER_TYPE=${CMAKE_LINKER_TYPE} needs CMake 3.29 or newer (running ${CMAKE_VERSION}); "
+    "it is being ignored and the default linker will be used.")
+endif()
 
 message(STATUS "ox: ${OX_COMPILER} ${CMAKE_CXX_COMPILER_VERSION} runtime=${OX_CXX_RUNTIME}")
 message(STATUS "ox: lua_bindings=${OX_LUA_BINDINGS} editor=${OX_EDITOR} tests=${OX_TESTS} "

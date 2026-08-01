@@ -20,13 +20,17 @@ target_compile_definitions(ResourceCompiler PRIVATE OXRC_EXPORTS=1)
 
 # The shader compiler is a headless tool: it reads TOML, drives slang and writes .oxpack. Linking
 # the simulation half rather than ox::Oxylus keeps vuk, SDL, ImGui and RmlUi out of it entirely.
+# tomlplusplus used to arrive through the monolithic engine library's PUBLIC link list. Now that
+# the engine is per-subsystem modules, only the ones that actually parse TOML carry it, so this
+# names its own dependency.
 target_link_libraries(ResourceCompiler
   PRIVATE
     ox_project_options
     ox::OxylusServerLib
     slang::slang
     SPIRV-Tools-opt
-    ox_zpp_bits)
+    ox_zpp_bits
+    tomlplusplus::tomlplusplus)
 
 if(UNIX AND NOT APPLE)
   target_link_options(ResourceCompiler PRIVATE "LINKER:--exclude-libs,ALL")
