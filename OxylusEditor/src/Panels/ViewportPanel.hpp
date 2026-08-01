@@ -1,5 +1,6 @@
 #pragma once
 
+#include "EditorCamera.hpp"
 #include "EditorPanelState.hpp"
 #include "Render/RenderScene.hpp"
 #include "UI/RuntimeConsole.hpp"
@@ -8,7 +9,8 @@
 namespace ox {
 class ViewportPanel : public EditorPanelState {
 public:
-  flecs::entity editor_camera = {};
+  // Client state, not an entity in the simulation world.
+  EditorCamera editor_camera = {};
 
   // One renderer instance per view, not per scene. Stage injection is cleared at the end of
   // every render(), so sharing an instance between viewports made them stomp each other.
@@ -76,11 +78,7 @@ private:
   std::vector<vuk::Unique<vuk::Buffer>> id_buffers = {};
 
   // Camera
-  f32 translation_dampening = 0.3f;
-  f32 rotation_dampening = 0.3f;
   glm::vec2 locked_mouse_position = glm::vec2(0.0f);
-  glm::vec3 translation_velocity = glm::vec3(0);
-  glm::vec2 rotation_velocity = glm::vec2(0);
 
   auto draw_settings_panel(this ViewportPanel& self) -> void;
   auto draw_gizmo_settings_panel(this ViewportPanel& self) -> void;

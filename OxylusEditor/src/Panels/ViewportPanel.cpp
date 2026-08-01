@@ -340,11 +340,7 @@ void ViewportPanel::on_render(this ViewportPanel& self, vuk::ImageAttachment swa
     }
 
     if (!self.editor_scene->is_playing()) {
-      if (self.editor_camera.is_alive() && self.editor_camera.has<CameraComponent>()) {
-        self.editor_camera.enable();
-
-        self.draw_gizmos();
-      }
+      self.draw_gizmos();
       self.transform_gizmos_button_group(start_cursor_pos);
     }
 
@@ -378,121 +374,40 @@ auto ViewportPanel::publish_view_request(this ViewportPanel& self) -> void {
     static_cast<u32>(std::max(self.scaled_render_size.y, 1.f))
   );
 
-  // In play mode the gameplay camera wins; in edit mode the panel's own fly-cam does. Both are
-  // expressed the same way, as a view the client is asking the simulation to resolve.
-  const auto camera_entity = self.editor_scene->is_playing() ? flecs::entity{} : self.editor_camera;
+  // Play mode asks the simulation to resolve a gameplay camera; edit mode supplies the panel's own
+  // fly-cam, which the simulation copies through without opinion.
+  const auto playing = self.editor_scene->is_playing();
 
   scene->view_requests.clear();
   scene->view_requests.push_back(
     ViewRequest{
       .view_id = static_cast<SimViewID>(0),
-      .source = SimCameraSource::SimEntity,
-      .camera_entity = camera_entity.is_valid() ? static_cast<EntityHandle>(camera_entity.id()) : EntityHandle::Invalid,
+      .source = playing ? SimCameraSource::SimEntity : SimCameraSource::ClientSupplied,
+      .camera_entity = EntityHandle::Invalid,
       .viewport_size = extent,
       .viewport_offset = glm::uvec2(static_cast<u32>(self.viewport_offset.x), static_cast<u32>(self.viewport_offset.y)),
+      .camera = playing ? GPU::CameraData{} : self.editor_camera.to_camera_data(),
     }
   );
 }
 
 auto ViewportPanel::on_update(this ViewportPanel& self) -> void {
-  if (
-    !self.editor_scene || !self.is_viewport_hovered || self.editor_scene->get_scene()->is_running() ||
-    !self.editor_camera.has<CameraComponent>()
-  ) {
+  if (!self.editor_scene) {
     return;
   }
 
-  auto& editor = App::mod<Editor>();
+  const auto extent = glm::uvec2(
+    static_cast<u32>(std::max(self.scaled_render_size.x, 1.f)),
+    static_cast<u32>(std::max(self.scaled_render_size.y, 1.f))
+  );
 
-  const f32 dt = static_cast<f32>(App::get_timestep().get_seconds());
-
-  auto& cam = self.editor_camera.get_mut<CameraComponent>();
-  auto& tc = self.editor_camera.get_mut<TransformComponent>();
-  const glm::vec3& position = cam.position;
-  const glm::vec2 yaw_pitch = glm::vec2(cam.yaw, cam.pitch);
-  glm::vec3 final_position = position;
-  glm::vec2 final_yaw_pitch = yaw_pitch;
-
-  const auto is_ortho = cam.projection == CameraComponent::Projection::Orthographic;
-  if (is_ortho) {
-    final_position = {0.0f, 0.0f, 0.0f};
-    final_yaw_pitch = {0.f, 0.f};
+  // Only drive the fly-cam when this viewport is actually being flown; otherwise just keep the
+  // matrices in step with the viewport size.
+  if (self.is_viewport_hovered && !self.editor_scene->get_scene()->is_running()) {
+    self.editor_camera.update(static_cast<f32>(App::get_timestep().get_seconds()), extent, self.locked_mouse_position);
+  } else {
+    self.editor_camera.refresh(extent);
   }
-
-  const auto& window = App::get_window();
-
-  auto& input_sys = App::mod<Input>();
-  if (input_sys.get_key_pressed(ScanCode::F)) {
-    auto& editor_context = editor.get_context();
-    if (editor_context.entity.has_value()) {
-      const auto entity_tc = editor_context.entity->get<TransformComponent>();
-      auto final_pos = entity_tc.position + cam.forward;
-      final_pos += -5.0f * cam.forward * glm::vec3(1.0f);
-      cam.position = final_pos;
-    }
-  }
-
-  const auto actual_sens = editor.editor_cvar.cvar_camera_sens.get() / 10.f;
-  const auto smoothed_sens = actual_sens * 100.f;
-  const auto camera_sens = editor.editor_cvar.cvar_camera_smooth.get() ? smoothed_sens : actual_sens;
-
-  const auto actual_speed = editor.editor_cvar.cvar_camera_speed.get();
-  const auto smoothed_speed = actual_speed * 100.f;
-  const auto camera_speed = editor.editor_cvar.cvar_camera_smooth.get() ? smoothed_speed : actual_speed;
-
-  if ((input_sys.get_mouse_held(MouseCode::Middle) || input_sys.get_mouse_held(MouseCode::Right)) && !is_ortho) {
-    const glm::vec2 new_mouse_position = input_sys.get_mouse_position_rel();
-    window.set_cursor_override(WindowCursor::Crosshair);
-
-    if (input_sys.get_mouse_moved()) {
-      const glm::vec2 change = new_mouse_position * camera_sens;
-      final_yaw_pitch.x += change.x;
-      final_yaw_pitch.y = glm::clamp(final_yaw_pitch.y - change.y, glm::radians(-89.9f), glm::radians(89.9f));
-    }
-
-    const float max_move_speed = camera_speed * (ImGui::IsKeyDown(ImGuiKey_LeftShift) ? 3.0f : 1.0f) * dt;
-
-    if (input_sys.get_key_held(ScanCode::W))
-      final_position += cam.forward * max_move_speed;
-    else if (input_sys.get_key_held(ScanCode::S))
-      final_position -= cam.forward * max_move_speed;
-    if (input_sys.get_key_held(ScanCode::D))
-      final_position += cam.right * max_move_speed;
-    else if (input_sys.get_key_held(ScanCode::A))
-      final_position -= cam.right * max_move_speed;
-
-    if (input_sys.get_key_held(ScanCode::Q)) {
-      final_position.y -= max_move_speed;
-    } else if (input_sys.get_key_held(ScanCode::E)) {
-      final_position.y += max_move_speed;
-    }
-  }
-  // Panning
-  else if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
-    const glm::vec2 new_mouse_position = input_sys.get_mouse_position_rel();
-    window.set_cursor_override(WindowCursor::ResizeAll);
-
-    const glm::vec2 change = (new_mouse_position - self.locked_mouse_position) * 1.f;
-
-    if (input_sys.get_mouse_moved()) {
-      const float max_move_speed = camera_speed * (ImGui::IsKeyDown(ImGuiKey_LeftShift) ? 3.0f : 1.0f) * dt;
-      final_position += cam.forward * change.y * max_move_speed;
-      final_position += cam.right * change.x * max_move_speed;
-    }
-  }
-
-  const glm::vec3 damped_position =
-    math::smooth_damp(position, final_position, self.translation_velocity, self.translation_dampening, 1000.0f, dt);
-  const glm::vec2 damped_yaw_pitch =
-    math::smooth_damp(yaw_pitch, final_yaw_pitch, self.rotation_velocity, self.rotation_dampening, 1000.0f, dt);
-
-  tc.position = editor.editor_cvar.cvar_camera_smooth.as_bool() ? damped_position : final_position;
-  const float applied_pitch = editor.editor_cvar.cvar_camera_smooth.as_bool() ? damped_yaw_pitch.y : final_yaw_pitch.y;
-  const float applied_yaw = editor.editor_cvar.cvar_camera_smooth.as_bool() ? damped_yaw_pitch.x : final_yaw_pitch.x;
-  tc.rotation = glm::quat(glm::vec3(applied_pitch, applied_yaw, 0.0f));
-  cam.pitch = applied_pitch;
-  cam.yaw = applied_yaw;
-  cam.zoom = static_cast<float>(editor.editor_cvar.cvar_camera_zoom.get());
 }
 
 auto ViewportPanel::set_context(this ViewportPanel& self, const std::shared_ptr<EditorScene>& scene) -> void {
@@ -504,10 +419,8 @@ auto ViewportPanel::set_context(this ViewportPanel& self, const std::shared_ptr<
 
   self.render_scene.init();
 
-  if (!scene->is_playing()) {
-    self.editor_camera = self.editor_scene->get_scene()->create_entity("editor_camera", false);
-    self.editor_camera.add<CameraComponent>().add<Hidden>();
-  }
+  self.editor_camera.translation_dampening = 0.3f;
+  self.editor_camera.rotation_dampening = 0.3f;
 
   auto& event_system = App::get_event_system();
   std::ignore = event_system.emit<Editor::ViewportSceneLoadEvent>(Editor::ViewportSceneLoadEvent{});
@@ -832,7 +745,7 @@ void ViewportPanel::draw_gizmos(this ViewportPanel& self) {
   auto& editor_context = editor.get_context();
   auto& undo_redo_system = editor.undo_redo_system;
 
-  const auto& cam = self.editor_camera.get<CameraComponent>();
+  const auto& cam = self.editor_camera.camera;
   auto projection = cam.get_projection_matrix();
   projection[1][1] *= -1;
   glm::mat4 view_proj = projection * cam.get_view_matrix();
@@ -902,7 +815,7 @@ void ViewportPanel::draw_gizmos(this ViewportPanel& self) {
     }
   }
 
-  if (selected_entity == flecs::entity::null() || !self.editor_camera.has<CameraComponent>())
+  if (selected_entity == flecs::entity::null())
     return;
 
   if (self.gizmo_type == -1)
@@ -1549,8 +1462,8 @@ void ViewportPanel::transform_gizmos_button_group(this ViewportPanel& self, ImVe
     )
       App::mod<Editor>().editor_cvar.cvar_draw_grid.toggle();
 
-    if (self.editor_camera.is_alive() && self.editor_camera.has<CameraComponent>()) {
-      auto& cam = self.editor_camera.get_mut<CameraComponent>();
+    {
+      auto& cam = self.editor_camera.camera;
       UI::push_id();
       if (
         UI::toggle_button(
