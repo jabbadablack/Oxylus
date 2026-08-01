@@ -45,8 +45,15 @@ matter where the process was launched from. `with_working_directory()` still ove
 
 Toolchains are `msvc`, `clang-cl`, `clang`, `nix-clang`, `mac-clang`; modes are `debug`, `release`,
 `dist`. On NixOS, use `nix-shell` (see `shell.nix`) and the `nix-clang-*` presets; the shell pins
-libc++, the Vulkan loader, mold, and the X11 **and** Wayland inputs SDL3 needs to configure both
-backends.
+libc++, the Vulkan loader, and mold.
+
+SDL3 is configured `SDL_X11 ON` / `SDL_WAYLAND OFF`, and `SDL_X11 ON` makes **every** X11 sub-feature
+a hard dependency — a missing header is a `SDL_missing_dependency` fatal error at configure time, not
+a disabled feature. The full set its `CheckX11` demands is Xcursor, Xdbe, XInput2, Xfixes, Xrandr,
+XScrnSaver, XShape, XTest and Xsync, which on Debian/Ubuntu means `libx11-dev libxext-dev libxi-dev
+libxfixes-dev libxrandr-dev libxcursor-dev libxss-dev libxtst-dev` (plus `libxkbcommon-dev`). Both
+`.github/workflows/ci.yaml` and `shell.nix` carry that list; adding an X11 sub-feature to SDL means
+adding a package to both.
 
 **On macOS, export `LLVM_PATH` before configuring**: `export LLVM_PATH=$(brew --prefix llvm@22)`.
 The `mac-clang-*` presets read it rather than hardcoding a Homebrew prefix, because that prefix is
@@ -211,6 +218,15 @@ server/client boundary; keep it honest.
 | `OxylusServerCore` | Core | Memory, Utils, OS |
 | `OxylusServerRender` | Render | Utils |
 | `OxylusServerLib` | Asset, Networking, Physics, Scene, Scripting, Server | all of the above |
+
+**`OxylusServerOS` is a leaf and has to stay one.** `Memory` links `OS` — `ScopedStack` reserves and
+commits its per-thread stack through `os::mem_reserve`/`os::mem_commit` — so an `OS` source that uses
+`memory::ScopedStack` inverts that edge, and since both are shared libraries the cycle cannot be
+linked. It does not fail at compile time: `ox_server_headers` puts every module's `include/` on the
+path, so `#include "Memory/Stack.hpp"` builds fine and the breakage is undefined symbols at link.
+Windows never caught it because only `Linux.cpp` and `MacOS.cpp` had reached for the stack allocator;
+they now use a fixed `c8` buffer for thread names and `fmt::memory_buffer` for command strings. When
+a `.cpp` under `OxylusServer/OS/` needs scratch memory, that is the pattern — not `ScopedStack`.
 
 **`OxylusClient/`** — renderer, windowing, input, UI. `OxylusClientLib` links `OxylusServerLib`, so
 it inherits the whole simulation side; nothing goes the other way.

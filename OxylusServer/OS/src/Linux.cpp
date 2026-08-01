@@ -1,3 +1,4 @@
+#include <pthread.h>
 #include <sys/file.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -5,11 +6,21 @@
 #include <sys/sysinfo.h>
 #include <unistd.h>
 
-#include "Memory/Stack.hpp"
+#include <algorithm>
+#include <cstring>
+#include <span>
+
 #include "OS/OS.hpp"
 #include "Utils/Log.hpp"
 
 namespace ox {
+static auto null_terminate_thread_name(std::span<c8> buffer, std::string_view name) -> const c8* {
+  const auto length = std::min(name.size(), buffer.size() - 1);
+  std::memcpy(buffer.data(), name.data(), length);
+  buffer[length] = '\0';
+  return buffer.data();
+}
+
 auto os::mem_page_size() -> u64 { return sysconf(_SC_PAGESIZE); }
 
 auto os::mem_reserve(u64 size) -> void* {
@@ -45,16 +56,16 @@ auto os::thread_id() -> i64 {
 
 auto os::set_thread_name(std::string_view name) -> void {
   ZoneScoped;
-  memory::ScopedStack stack;
 
-  pthread_setname_np(pthread_self(), stack.null_terminate_cstr(name));
+  c8 buffer[16];
+  pthread_setname_np(pthread_self(), null_terminate_thread_name(buffer, name));
 }
 
 auto os::set_thread_name(std::thread::native_handle_type thread, std::string_view name) -> void {
   ZoneScoped;
-  memory::ScopedStack stack;
 
-  pthread_setname_np(thread, stack.null_terminate_cstr(name));
+  c8 buffer[16];
+  pthread_setname_np(thread, null_terminate_thread_name(buffer, name));
 }
 
 auto os::open_folder_select_file(const std::filesystem::path& path) -> void {

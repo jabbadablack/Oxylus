@@ -44,7 +44,6 @@ in pkgs.mkShell.override {
     # SDL3
     pkgs.util-macros
     pkgs.vulkan-loader
-    pkgs.wayland-scanner
 
     pkgs.shader-slang
   ];
@@ -61,10 +60,9 @@ in pkgs.mkShell.override {
     pkgs.libXrandr
     pkgs.xorgproto
 
-    pkgs.wayland
-    pkgs.wayland-protocols
+    pkgs.libXcursor
+    pkgs.libXtst
     pkgs.libxkbcommon
-    pkgs.libdecor
   ];
 
   PKG_CONFIG_PATH = "${xssWrapper}/lib/pkgconfig:$PKG_CONFIG_PATH";
@@ -83,9 +81,9 @@ in pkgs.mkShell.override {
     pkgs.libXfixes
     pkgs.libXi
     pkgs.libXrandr
-    pkgs.wayland
+    pkgs.libXcursor
+    pkgs.libXtst
     pkgs.libxkbcommon
-    pkgs.libdecor
   ]}";
   NIX_ENFORCE_NO_NATIVE = "0";
 
