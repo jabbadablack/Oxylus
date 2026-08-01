@@ -114,9 +114,10 @@ auto Physics::new_system(this const Physics& self) -> std::unique_ptr<JPH::Physi
   return sys;
 }
 
-auto Physics::new_debug_renderer(this const Physics& self) -> std::unique_ptr<PhysicsDebugRenderer> {
+auto Physics::new_debug_renderer(this const Physics& self, DebugDrawList& target_draw_list)
+  -> std::unique_ptr<PhysicsDebugRenderer> {
   ZoneScoped;
 
-  return std::make_unique<PhysicsDebugRenderer>();
+  return std::make_unique<PhysicsDebugRenderer>(target_draw_list);
 }
 } // namespace ox

@@ -420,7 +420,7 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
 
   auto& physics = App::mod<Physics>();
   self.physics_system = physics.new_system();
-  self.physics_debug_renderer = physics.new_debug_renderer();
+  self.physics_debug_renderer = physics.new_debug_renderer(self.debug_draw_list);
 
   self.world.observer<TransformComponent>()
     .event(flecs::OnSet)
@@ -959,19 +959,17 @@ auto Scene::init(this Scene& self, const std::string& name) -> void {
 
   self.world.system<SpriteComponent>("sprite_aabb")
     .kind(flecs::PostUpdate)
-    .each([cvar = &self.renderer_cvar](const flecs::entity entity, SpriteComponent& sprite) {
-      if (cvar->cvar_draw_bounding_boxes.get()) {
-        auto& debug_renderer = App::mod<DebugRenderer>();
-        debug_renderer.draw_aabb(sprite.rect, glm::vec4(1, 1, 1, 1.0f));
+    .each([&self](const flecs::entity entity, SpriteComponent& sprite) {
+      if (self.renderer_cvar.cvar_draw_bounding_boxes.get()) {
+        self.debug_draw_list.draw_aabb(sprite.rect, glm::vec4(1, 1, 1, 1.0f));
       }
     });
 
   self.world.system<MeshComponent>("mesh_aabb")
     .kind(flecs::PostUpdate)
-    .each([cvar = &self.renderer_cvar](const flecs::entity entity, MeshComponent& mc) {
-      if (cvar->cvar_draw_bounding_boxes.get()) {
-        auto& debug_renderer = App::mod<DebugRenderer>();
-        debug_renderer.draw_aabb(mc.world_aabb, glm::vec4(0.f, 1.f, 0.f, 1.0f));
+    .each([&self](const flecs::entity entity, MeshComponent& mc) {
+      if (self.renderer_cvar.cvar_draw_bounding_boxes.get()) {
+        self.debug_draw_list.draw_aabb(mc.world_aabb, glm::vec4(0.f, 1.f, 0.f, 1.0f));
       }
     });
 

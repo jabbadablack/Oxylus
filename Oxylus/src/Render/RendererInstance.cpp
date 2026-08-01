@@ -1225,7 +1225,8 @@ auto RendererInstance::update(this RendererInstance& self, RendererInstanceUpdat
       ) {
         const auto proj = frozen_camera.get_projection_matrix() * frozen_camera.get_view_matrix();
         auto& debug_renderer = App::mod<ox::DebugRenderer>();
-        debug_renderer.draw_frustum(proj, glm::vec4(0, 1, 0, 1), frozen_camera.near_clip, frozen_camera.far_clip);
+        debug_renderer.draw_list
+          .draw_frustum(proj, glm::vec4(0, 1, 0, 1), frozen_camera.near_clip, frozen_camera.far_clip);
       }
 
       current_camera = c;
@@ -1572,11 +1573,27 @@ auto RendererInstance::update(this RendererInstance& self, RendererInstanceUpdat
   if (debug_renderer_enabled) {
     auto& debug_renderer = App::mod<ox::DebugRenderer>();
 
-    const auto& lines = debug_renderer.get_lines(false);
-    auto [line_vertices, line_index_count] = debug_renderer.get_vertices_from_lines(lines);
+    // Debug geometry arrives from two independent producers: the simulation (bounding boxes,
+    // physics shapes) and the client (editor gizmos). Neither knows about the other, so merge
+    // them here, keeping all lines ahead of all triangles - the debug pass draws them as two
+    // contiguous index ranges.
+    auto line_vertices = std::vector<DebugDrawList::Vertex>{};
+    auto triangle_vertices = std::vector<DebugDrawList::Vertex>{};
+    auto line_index_count = 0_u32;
+    auto triangle_index_count = 0_u32;
 
-    const auto& triangles = debug_renderer.get_triangles(false);
-    auto [triangle_vertices, triangle_index_count] = debug_renderer.get_vertices_from_triangles(triangles);
+    const auto append_draw_list = [&](const DebugDrawList& draw_list) {
+      auto [lines, lines_count] = DebugDrawList::get_vertices_from_lines(draw_list.get_lines(false));
+      line_vertices.insert(line_vertices.end(), lines.begin(), lines.end());
+      line_index_count += lines_count;
+
+      auto [triangles, triangles_count] = DebugDrawList::get_vertices_from_triangles(draw_list.get_triangles(false));
+      triangle_vertices.insert(triangle_vertices.end(), triangles.begin(), triangles.end());
+      triangle_index_count += triangles_count;
+    };
+
+    append_draw_list(self.scene.debug_draw_list);
+    append_draw_list(debug_renderer.draw_list);
 
     const u32 index_count = line_index_count + triangle_index_count;
     OX_CHECK_LT(index_count, DebugRenderer::MAX_LINE_INDICES, "Increase DebugRenderer::MAX_LINE_INDICES");
@@ -1584,9 +1601,9 @@ auto RendererInstance::update(this RendererInstance& self, RendererInstanceUpdat
     self.prepared_frame.line_index_count = line_index_count;
     self.prepared_frame.triangle_index_count = triangle_index_count;
 
-    std::vector<DebugRenderer::Vertex> vertices = line_vertices;
+    std::vector<DebugDrawList::Vertex> vertices = std::move(line_vertices);
     vertices.insert(vertices.end(), triangle_vertices.begin(), triangle_vertices.end());
-    std::span<DebugRenderer::Vertex> vertices_span = line_vertices;
+    std::span<DebugDrawList::Vertex> vertices_span = vertices;
 
     if (!vertices.empty()) {
       self.debug_renderer_verticies_buffer = render_context.resize_buffer(
@@ -1606,7 +1623,8 @@ auto RendererInstance::update(this RendererInstance& self, RendererInstanceUpdat
       );
     }
 
-    debug_renderer.reset();
+    self.scene.debug_draw_list.reset();
+    debug_renderer.draw_list.reset();
   }
 
   self.update_vbgtao_info(cvar);

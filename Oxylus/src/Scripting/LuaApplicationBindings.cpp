@@ -7,6 +7,7 @@
 #include "Core/Input.hpp"
 #include "Networking/NetworkManager.hpp"
 #include "Physics/Physics.hpp"
+#include "Render/DebugRenderer.hpp"
 #include "Scripting/LuaHelpers.hpp"
 #include "Scripting/LuaManager.hpp"
 

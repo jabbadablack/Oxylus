@@ -3,8 +3,8 @@
 // clang-format off
 #include <expected>
 
+#include "Physics/PhysicsDebugRenderer.hpp"
 #include "Physics/PhysicsInterfaces.hpp"
-#include "Render/DebugRenderer.hpp"
 
 #include <Jolt/Core/JobSystemThreadPool.h>
 #include <Jolt/Physics/PhysicsSystem.h>
@@ -28,7 +28,8 @@ public:
   auto deinit(this Physics& self) -> std::expected<void, std::string>;
 
   auto new_system(this const Physics& self) -> std::unique_ptr<JPH::PhysicsSystem>;
-  auto new_debug_renderer(this const Physics& self) -> std::unique_ptr<PhysicsDebugRenderer>;
+  auto new_debug_renderer(this const Physics& self, DebugDrawList& target_draw_list)
+    -> std::unique_ptr<PhysicsDebugRenderer>;
 
   auto get_temp_allocator(this const Physics& self) -> JPH::TempAllocatorImpl* { return self.temp_allocator.get(); }
   auto get_job_system(this const Physics& self) -> JPH::JobSystemWithBarrier* { return self.job_system.get(); }

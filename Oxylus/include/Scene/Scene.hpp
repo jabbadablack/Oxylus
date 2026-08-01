@@ -14,11 +14,12 @@
 #include "Asset/Fwd.hpp"
 #include "Asset/Model.hpp"
 #include "Core/UUID.hpp"
+#include "Physics/PhysicsDebugRenderer.hpp"
 #include "Physics/PhysicsInterfaces.hpp"
-#include "Render/DebugRenderer.hpp"
 #include "Render/RendererCVar.hpp"
 #include "Render/RendererInstance.hpp"
 #include "Scene/Components.hpp"
+#include "Scene/DebugDrawList.hpp"
 #include "Scene/SceneGPU.hpp"
 #include "Scripting/LuaSystem.hpp"
 #include "Utils/Timestep.hpp"
@@ -67,6 +68,10 @@ public:
   ankerl::unordered_dense::map<u32, flecs::entity> transform_index_entities_map = {};
 
   RendererCVar renderer_cvar = {};
+
+  // Simulation-side debug geometry: bounding boxes from the aabb systems, shapes from Jolt. The
+  // renderer drains it; the scene never learns how it is drawn.
+  DebugDrawList debug_draw_list = {};
 
   SlotMap<MeshInstance, MeshInstanceID> mesh_instances = {};
   ankerl::unordered_dense::map<flecs::entity, MeshInstanceID> entity_to_mesh_instance_map = {};

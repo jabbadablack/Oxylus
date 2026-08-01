@@ -38,6 +38,10 @@ set(OX_SIM_FILES
   src/Core/ModuleRegistry.cpp
   src/Core/UUID.cpp
   src/Core/VFS.cpp
+  src/Physics/PhysicsDebugRenderer.cpp
+  # Pure math that happens to sit under Render/. Moving the file is a separate cleanup.
+  src/Render/BoundingVolume.cpp
+  src/Scene/DebugDrawList.cpp
   src/Utils/CVars.cpp
   src/Utils/Log.cpp
   src/Utils/OxMath.cpp
