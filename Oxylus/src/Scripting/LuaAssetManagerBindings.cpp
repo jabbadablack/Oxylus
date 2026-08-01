@@ -3,6 +3,7 @@
 #include <sol/state.hpp>
 
 #include "Asset/AssetManager.hpp"
+#include "Scene/Scene.hpp"
 #include "Scripting/LuaHelpers.hpp"
 
 namespace ox {

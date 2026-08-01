@@ -8,10 +8,14 @@
 #include "Memory/Hasher.hpp"
 #include "Memory/Stack.hpp"
 #include "OS/File.hpp"
+#include "Scene/Scene.hpp"
 #include "Scripting/LuaSystem.hpp"
 #include "Utils/Log.hpp"
 
 namespace ox {
+AssetManager::AssetManager() = default;
+AssetManager::~AssetManager() = default;
+
 auto begin_asset_meta(JsonWriter& writer, const UUID& uuid, AssetType type) -> void {
   ZoneScoped;
 

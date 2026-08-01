@@ -1,5 +1,7 @@
 #pragma once
 
+#include <flecs.h>
+
 #include "Asset/AssetManager.hpp"
 #include "Core/UUID.hpp"
 #include "EditorPanelState.hpp"

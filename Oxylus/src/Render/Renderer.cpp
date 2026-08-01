@@ -12,6 +12,7 @@
 #include "Render/RenderContext.hpp"
 #include "Render/RendererInstance.hpp"
 #include "Render/Utils/VukCommon.hpp"
+#include "Scene/Scene.hpp"
 
 namespace ox {
 static_assert(ModuleHasUpdate<Renderer>, "Renderer::update must be registered as a module update");

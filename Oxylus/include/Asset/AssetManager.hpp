@@ -1,18 +1,22 @@
 #pragma once
 
+#include <expected>
 #include <simdjson.h>
 
 #include "Asset/AssetFile.hpp"
 #include "Asset/AudioSource.hpp"
+#include "Asset/Fwd.hpp"
 #include "Asset/Material.hpp"
 #include "Asset/Model.hpp"
 #include "Asset/Texture.hpp"
 #include "Core/UUID.hpp"
 #include "Memory/ReadGuard.hpp"
 #include "Memory/SlotMap.hpp"
-#include "Scene/Scene.hpp"
-#include "Scripting/LuaSystem.hpp"
 #include "Utils/JsonWriter.hpp"
+
+// Scene and LuaSystem are held only behind unique_ptr and ReadGuard, so a forward declaration is
+// enough. Including Scene/Scene.hpp here made Scene -> Asset -> Renderer a header cycle and dragged
+// the whole vuk surface into every consumer of the asset manager.
 
 namespace ox {
 struct Asset {
@@ -43,6 +47,15 @@ using AssetRegistry = ankerl::unordered_dense::map<UUID, Asset>;
 class AssetManager {
 public:
   constexpr static auto MODULE_NAME = "AssetManager";
+
+  // Declared here and defaulted in the .cpp: the scene and script slot maps hold unique_ptrs to
+  // types this header only forward-declares, so the destructor must be instantiated where they are
+  // complete.
+  AssetManager();
+  ~AssetManager();
+
+  AssetManager(const AssetManager&) = delete;
+  AssetManager& operator=(const AssetManager&) = delete;
 
   using LoadInfo = std::variant<TextureLoadInfo, Material>;
 
@@ -82,7 +95,8 @@ public:
   auto export_script(this AssetManager& self, const UUID& uuid, JsonWriter& writer, const std::filesystem::path& path)
     -> bool;
 
-  auto load_asset(this AssetManager& self, const UUID& uuid, LoadInfo explicit_load = {}, bool should_acquire = true) -> bool;
+  auto load_asset(this AssetManager& self, const UUID& uuid, LoadInfo explicit_load = {}, bool should_acquire = true)
+    -> bool;
   auto unload_asset(this AssetManager& self, const UUID& uuid) -> void;
 
   auto is_loaded(this AssetManager& self, const UUID& uuid) -> bool;
@@ -119,7 +133,8 @@ private:
   auto load_texture(this AssetManager& self, const std::filesystem::path& path, TextureLoadInfo info = {}) -> TextureID;
   auto unload_texture(this AssetManager& self, ReadGuard<Asset> asset) -> bool;
 
-  auto load_material(this AssetManager& self, const std::filesystem::path& path, const Material &info = {}) -> MaterialID;
+  auto load_material(this AssetManager& self, const std::filesystem::path& path, const Material& info = {})
+    -> MaterialID;
   auto unload_material(this AssetManager& self, ReadGuard<Asset> asset) -> bool;
 
   auto load_scene(this AssetManager& self, const std::filesystem::path& path) -> SceneID;
@@ -146,9 +161,12 @@ private:
   SlotMap<Model, ModelID> model_map = {};
   SlotMap<Texture, TextureID> texture_map = {};
   SlotMap<Material, MaterialID> material_map = {};
-  SlotMap<std::unique_ptr<Scene>, SceneID> scene_map = {};
+  // No `= {}` on these two: a default member initializer would instantiate the slot map's default
+  // constructor here, where Scene and LuaSystem are still incomplete. The defaulted AssetManager
+  // constructor in the .cpp does it instead.
+  SlotMap<std::unique_ptr<Scene>, SceneID> scene_map;
   SlotMap<AudioSource, AudioID> audio_map = {};
-  SlotMap<std::unique_ptr<LuaSystem>, ScriptID> script_map = {};
+  SlotMap<std::unique_ptr<LuaSystem>, ScriptID> script_map;
 
   UUID null_material = {};
 };

@@ -5,6 +5,7 @@
 #include "Core/ProjectSerializer.hpp"
 #include "Core/UUID.hpp"
 #include "Core/VFS.hpp"
+#include "Scene/Scene.hpp"
 
 namespace ox {
 struct AssetDirectoryCallbacks {

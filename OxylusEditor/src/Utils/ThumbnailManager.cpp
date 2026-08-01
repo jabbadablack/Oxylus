@@ -9,6 +9,8 @@
 #include "Core/App.hpp"
 #include "Memory/Hasher.hpp"
 #include "Memory/Stack.hpp"
+#include "Render/Renderer.hpp"
+#include "Scene/Scene.hpp"
 #include "Utils/ThumbnailCamera.hpp"
 
 namespace ox {
