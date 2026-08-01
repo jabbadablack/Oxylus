@@ -42,6 +42,30 @@ struct ankerl::unordered_dense::hash<flecs::entity> {
 };
 
 namespace ox {
+struct NetServer;
+class Server;
+
+// The procs this file implements. Declared beside the logic rather than in the server, so a
+// change to a Scene operation and a change to how clients reach it are visible together.
+namespace proc {
+constexpr auto ENTITY_DESTROY = std::string_view("entity.destroy");
+constexpr auto ENTITY_RENAME = std::string_view("entity.rename");
+constexpr auto ENTITY_REPARENT = std::string_view("entity.reparent");
+constexpr auto ENTITY_ENABLE = std::string_view("entity.enable");
+constexpr auto ENTITY_CLONE = std::string_view("entity.clone");
+constexpr auto ENTITY_CREATE = std::string_view("entity.create");
+constexpr auto ENTITY_TRANSFORM = std::string_view("entity.transform");
+constexpr auto ENTITY_COMPONENT = std::string_view("entity.component");
+constexpr auto ENTITY_RESTORE = std::string_view("entity.restore");
+constexpr auto MODEL_SPAWN = std::string_view("model.spawn");
+constexpr auto SCENE_SAVE = std::string_view("scene.save");
+// A scene's renderer cvars are read by server-side systems - debug draw and physics debug
+// draw - so a client toggling one has to say so.
+constexpr auto CVAR_SET = std::string_view("cvar.set");
+} // namespace proc
+
+// Registers everything above. Called once from Server::listen.
+auto register_scene_procs(NetServer& net, Server& server) -> void;
 struct JsonWriter;
 class Scene;
 

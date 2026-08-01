@@ -14,6 +14,13 @@ enum class CVarFlags : u32 {
   Advanced = 1 << 3,
   Dropdown = 1 << 4,
 
+  // How a cvar crosses the wire. Source calls this FCVAR_REPLICATED and friends; the point is
+  // the same - the flag lives with the declaration, so whether a value is shared is visible
+  // where it is defined rather than in a table somewhere else.
+  Replicated = 1 << 16, // server owns it, clients are told
+  ServerOnly = 1 << 17, // never leaves the server
+  ClientOnly = 1 << 18, // never sent to the server
+
   EditCheckbox = 1 << 8,
   EditFloatDrag = 1 << 9,
   EditIntDrag = 1 << 10,
@@ -67,6 +74,13 @@ public:
   auto set_float_cvar(usize hash, f32 value) -> void;
   auto set_int_cvar(usize hash, i32 value) -> void;
   auto set_string_cvar(usize hash, std::string_view value) -> void;
+
+  // Sets a cvar the way a remote caller has to: by name, with the value as a number, and
+  // refusing anything flagged ClientOnly. Returns false if the name is unknown, the type does
+  // not take a number, or the flags forbid it.
+  auto set_by_name(std::string_view name, f64 value) -> bool;
+
+  static auto hash_name(std::string_view name) -> usize;
 
 private:
   std::shared_mutex mutex_;

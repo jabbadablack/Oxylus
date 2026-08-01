@@ -14,6 +14,7 @@
 #include "Render/RenderContext.hpp"
 #include "Render/Utils/VukCommon.hpp"
 #include "Scene/Components.hpp"
+#include "Scene/Scene.hpp"
 #include "UI/ImGuiRenderer.hpp"
 #include "UI/PayloadData.hpp"
 #include "UI/UI.hpp"
@@ -438,7 +439,7 @@ auto ViewportPanel::drag_drop(this const ViewportPanel& self) -> void {
           // uuid from the same disk. Placing the entity is the server's.
           auto uuid_bytes = std::array<u8, 16>{};
           std::ranges::copy(asset.bytes(), uuid_bytes.begin());
-          App::send_rpc("model.spawn", std::array{RPCParameter{.value = uuid_bytes}});
+          App::send_rpc(proc::MODEL_SPAWN, std::array{RPCParameter{.value = uuid_bytes}});
         }
       }
     }

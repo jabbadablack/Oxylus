@@ -3,6 +3,7 @@
 #include <fmt/base.h>
 
 #include "Scene/ComponentBlob.hpp"
+#include "Scene/ComponentRegistry.hpp"
 #include "Scene/Components.hpp"
 #include "Utils/Log.hpp"
 
@@ -106,42 +107,42 @@ auto SceneSnapshotBuilder::delta(this SceneSnapshotBuilder& self) -> SceneState 
 auto SceneSnapshotBuilder::take_snapshot(flecs::world& world, SceneState& state) -> void {
   ZoneScoped;
 
-  world.query_builder()
-    .with<Networked>() //
-    .each([&](flecs::entity component) {
-      auto component_id = component.raw_id();
-      auto is_component = component.has<flecs::Component>();
-      auto component_info = flecs::Component{};
+  // Everything the registry marked, minus the explicit opt-outs. Nothing here enumerates
+  // components, so adding one to Components.cpp is all it takes to replicate it.
+  world.query_builder().with<Replicated>().without<NotReplicated>().each([&](flecs::entity component) {
+    auto component_id = component.raw_id();
+    auto is_component = component.has<flecs::Component>();
+    auto component_info = flecs::Component{};
+    if (is_component) {
+      component_info = component.get<flecs::Component>();
+    }
+
+    // EcsQueryMatchDisabled, because flecs excludes disabled entities from queries by default.
+    // Without it a disabled entity vanishes from the snapshot entirely - and, far worse, a delta
+    // would then list it under removed_entities and the client would destroy it.
+    world.query_builder().with(component).query_flags(EcsQueryMatchDisabled).each([&](flecs::entity entity) {
+      auto entity_id = entity.id();
+      auto component_state = ComponentState{.id = component_id, .hash = ~0_u64};
       if (is_component) {
-        component_info = component.get<flecs::Component>();
+        // Through the reflection, not a memcpy of the raw bytes: several components own heap
+        // storage or raw engine pointers, and the reflection binds only the authoritative
+        // fields. The hash is taken over the encoded form so it tracks what actually shipped.
+        if (write_component_blob(entity, component_id, component_state.buffer)) {
+          component_state.hash = ankerl::unordered_dense::detail::wyhash::hash(
+            component_state.buffer.data(),
+            component_state.buffer.size()
+          );
+        }
       }
 
-      // EcsQueryMatchDisabled, because flecs excludes disabled entities from queries by default.
-      // Without it a disabled entity vanishes from the snapshot entirely - and, far worse, a delta
-      // would then list it under removed_entities and the client would destroy it.
-      world.query_builder().with(component).query_flags(EcsQueryMatchDisabled).each([&](flecs::entity entity) {
-        auto entity_id = entity.id();
-        auto component_state = ComponentState{.id = component_id, .hash = ~0_u64};
-        if (is_component) {
-          // Through the reflection, not a memcpy of the raw bytes: several components own heap
-          // storage or raw engine pointers, and the reflection binds only the authoritative
-          // fields. The hash is taken over the encoded form so it tracks what actually shipped.
-          if (write_component_blob(entity, component_id, component_state.buffer)) {
-            component_state.hash = ankerl::unordered_dense::detail::wyhash::hash(
-              component_state.buffer.data(),
-              component_state.buffer.size()
-            );
-          }
-        }
-
-        auto& entity_state = state.entities[entity_id];
-        entity_state.entity_id = entity_id;
-        entity_state.name = entity.name().c_str();
-        entity_state.parent = entity.parent().id();
-        entity_state.enabled = !entity.has(flecs::Disabled);
-        entity_state.components.emplace(component_id, std::move(component_state));
-      });
+      auto& entity_state = state.entities[entity_id];
+      entity_state.entity_id = entity_id;
+      entity_state.name = entity.name().c_str();
+      entity_state.parent = entity.parent().id();
+      entity_state.enabled = !entity.has(flecs::Disabled);
+      entity_state.components.emplace(component_id, std::move(component_state));
     });
+  });
 }
 
 auto apply_scene_state(flecs::world& world, const SceneState& state) -> void {

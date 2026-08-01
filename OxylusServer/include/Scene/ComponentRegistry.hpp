@@ -14,6 +14,15 @@
 #include "Core/Types.hpp"
 
 namespace ox {
+// Replication policy, applied by the registry rather than remembered per component.
+// bind() marks everything it registers Replicated, so a component reaches the client by
+// existing - the previous opt-in meant 25 hand-written tags and one forgotten tag was a
+// component that silently never replicated.
+struct Replicated {};
+
+// Opt out, for state that is derived or regenerated every tick and would only cost bandwidth.
+struct NotReplicated {};
+
 // Compile time reflection over pointers to members. Component and member names are derived from the
 // pointer itself, so a registration can't disagree with the struct it describes.
 namespace refl {
@@ -143,6 +152,9 @@ struct ComponentRegistry {
       self.module_table[component.name().c_str()] = usertype;
     }
 #endif
+
+    // Replicated by default. Value types bound below are not components and never get this.
+    component.template add<Replicated>();
 
     return ComponentBuilder{component};
   }

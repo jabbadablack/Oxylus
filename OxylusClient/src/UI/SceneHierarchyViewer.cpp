@@ -6,6 +6,7 @@
 #include "Asset/AssetManager.hpp"
 #include "Core/App.hpp"
 #include "Networking/NetPacket.hpp"
+#include "Scene/Scene.hpp"
 #include "UI/AssetManagerViewer.hpp"
 #include "UI/UI.hpp"
 #include "Utils/ImGuiScoped.hpp"
@@ -320,7 +321,7 @@ auto SceneHierarchyViewer::draw_entity_node(
     if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
       // The server clones and picks the free name; the result arrives by replication. The
       // selection is not moved here because the new entity does not exist yet on this side.
-      App::send_rpc("entity.clone", std::array{RPCParameter{.value = static_cast<i64>(entity.id())}});
+      App::send_rpc(proc::ENTITY_CLONE, std::array{RPCParameter{.value = static_cast<i64>(entity.id())}});
       selected_script_ = nullptr;
     }
     if (ImGui::MenuItem("Delete", "Del"))

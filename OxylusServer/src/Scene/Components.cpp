@@ -55,273 +55,261 @@ CoreComponentsModule::CoreComponentsModule(flecs::world& world) {
 
   {
     using C = TransformComponent;
-    registry.bind<&C::position, &C::rotation, &C::scale>().tags<Networked>();
+    registry.bind<&C::position, &C::rotation, &C::scale>();
   }
 
   // Layer
   {
     using C = LayerComponent;
-    registry.bind<&C::layer>().tags<Networked>();
+    registry.bind<&C::layer>();
   }
 
   // Rendering Components
   {
     using C = MeshComponent;
-    registry.bind<&C::model_uuid, &C::mesh_index, &C::material_uuid, &C::cast_shadows>().tags<Networked>();
+    registry.bind<&C::model_uuid, &C::mesh_index, &C::material_uuid, &C::cast_shadows>();
   }
 
   {
     using C = SpriteComponent;
-    registry.bind<&C::layer, &C::sort_y, &C::flip_x, &C::material>().tags<Networked>();
+    registry.bind<&C::layer, &C::sort_y, &C::flip_x, &C::material>();
   }
 
   {
     using C = SpriteAnimationComponent;
-    registry.bind<&C::num_frames, &C::loop, &C::inverted, &C::fps, &C::columns, &C::frame_size>().tags<Networked>();
+    registry.bind<&C::num_frames, &C::loop, &C::inverted, &C::fps, &C::columns, &C::frame_size>();
   }
 
   {
     using C = CameraComponent;
-    registry.bind<&C::projection, &C::fov, &C::aspect, &C::far_clip, &C::near_clip, &C::tilt, &C::zoom>()
-      .tags<Networked>();
+    registry.bind<&C::projection, &C::fov, &C::aspect, &C::far_clip, &C::near_clip, &C::tilt, &C::zoom>();
   }
 
   {
     using C = ParticleSystemComponent;
-    registry
-      .bind<
-        &C::material,
-        &C::duration,
-        &C::looping,
-        &C::start_delay,
-        &C::start_lifetime,
-        &C::start_velocity,
-        &C::start_color,
-        &C::start_size,
-        &C::start_rotation,
-        &C::gravity_modifier,
-        &C::simulation_speed,
-        &C::play_on_awake,
-        &C::max_particles,
-        &C::rate_over_time,
-        &C::rate_over_distance,
-        &C::burst_count,
-        &C::position_start,
-        &C::position_end,
-        &C::velocity_over_lifetime_enabled,
-        &C::velocity_over_lifetime_start,
-        &C::velocity_over_lifetime_end,
-        &C::force_over_lifetime_enabled,
-        &C::force_over_lifetime_start,
-        &C::force_over_lifetime_end,
-        &C::color_over_lifetime_enabled,
-        &C::color_over_lifetime_start,
-        &C::color_over_lifetime_end,
-        &C::color_by_speed_enabled,
-        &C::color_by_speed_start,
-        &C::color_by_speed_end,
-        &C::color_by_speed_min_speed,
-        &C::color_by_speed_max_speed,
-        &C::size_over_lifetime_enabled,
-        &C::size_over_lifetime_start,
-        &C::size_over_lifetime_end,
-        &C::size_by_speed_enabled,
-        &C::size_by_speed_start,
-        &C::size_by_speed_end,
-        &C::size_by_speed_min_speed,
-        &C::size_by_speed_max_speed,
-        &C::rotation_over_lifetime_enabled,
-        &C::rotation_over_lifetime_start,
-        &C::rotation_over_lifetime_end,
-        &C::rotation_by_speed_enabled,
-        &C::rotation_by_speed_start,
-        &C::rotation_by_speed_end,
-        &C::rotation_by_speed_min_speed,
-        &C::rotation_by_speed_max_speed>()
-      .tags<Networked>();
+    registry.bind<
+      &C::material,
+      &C::duration,
+      &C::looping,
+      &C::start_delay,
+      &C::start_lifetime,
+      &C::start_velocity,
+      &C::start_color,
+      &C::start_size,
+      &C::start_rotation,
+      &C::gravity_modifier,
+      &C::simulation_speed,
+      &C::play_on_awake,
+      &C::max_particles,
+      &C::rate_over_time,
+      &C::rate_over_distance,
+      &C::burst_count,
+      &C::position_start,
+      &C::position_end,
+      &C::velocity_over_lifetime_enabled,
+      &C::velocity_over_lifetime_start,
+      &C::velocity_over_lifetime_end,
+      &C::force_over_lifetime_enabled,
+      &C::force_over_lifetime_start,
+      &C::force_over_lifetime_end,
+      &C::color_over_lifetime_enabled,
+      &C::color_over_lifetime_start,
+      &C::color_over_lifetime_end,
+      &C::color_by_speed_enabled,
+      &C::color_by_speed_start,
+      &C::color_by_speed_end,
+      &C::color_by_speed_min_speed,
+      &C::color_by_speed_max_speed,
+      &C::size_over_lifetime_enabled,
+      &C::size_over_lifetime_start,
+      &C::size_over_lifetime_end,
+      &C::size_by_speed_enabled,
+      &C::size_by_speed_start,
+      &C::size_by_speed_end,
+      &C::size_by_speed_min_speed,
+      &C::size_by_speed_max_speed,
+      &C::rotation_over_lifetime_enabled,
+      &C::rotation_over_lifetime_start,
+      &C::rotation_over_lifetime_end,
+      &C::rotation_by_speed_enabled,
+      &C::rotation_by_speed_start,
+      &C::rotation_by_speed_end,
+      &C::rotation_by_speed_min_speed,
+      &C::rotation_by_speed_max_speed>();
   }
 
   {
     using C = ParticleComponent;
-    registry.bind<&C::color, &C::life_remaining>();
+    // The one thing that does not replicate: a particle is spawned per instance and ticked
+    // every frame, so this would put thousands of high-churn entities on the wire for state
+    // the client already derives from ParticleSystemComponent.
+    registry.bind<&C::color, &C::life_remaining>().tags<NotReplicated>();
   }
 
   {
     using C = LightComponent;
-    registry
-      .bind<
-        &C::type,
-        &C::color,
-        &C::intensity,
-        &C::radius,
-        &C::outer_cone_angle,
-        &C::inner_cone_angle,
-        &C::cast_shadows,
-        &C::first_cascade_far_bound,
-        &C::maximum_shadow_distance,
-        &C::minimum_shadow_distance,
-        &C::first_clipmap_width,
-        &C::clipmap_selection_bias>()
-      .tags<Networked>();
+    registry.bind<
+      &C::type,
+      &C::color,
+      &C::intensity,
+      &C::radius,
+      &C::outer_cone_angle,
+      &C::inner_cone_angle,
+      &C::cast_shadows,
+      &C::first_cascade_far_bound,
+      &C::maximum_shadow_distance,
+      &C::minimum_shadow_distance,
+      &C::first_clipmap_width,
+      &C::clipmap_selection_bias>();
   }
 
   {
     using C = SkyComponent;
-    registry.bind<&C::solid_color, &C::ambient_color, &C::texture>().tags<Networked>();
+    registry.bind<&C::solid_color, &C::ambient_color, &C::texture>();
   }
 
   {
     using C = AtmosphereComponent;
-    registry
-      .bind<
-        &C::rayleigh_scattering,
-        &C::rayleigh_density,
-        &C::mie_scattering,
-        &C::mie_density,
-        &C::mie_extinction,
-        &C::mie_asymmetry,
-        &C::ozone_absorption,
-        &C::ozone_height,
-        &C::ozone_thickness,
-        &C::aerial_perspective_start_km,
-        &C::aerial_perspective_exposure>()
-      .tags<Networked>();
+    registry.bind<
+      &C::rayleigh_scattering,
+      &C::rayleigh_density,
+      &C::mie_scattering,
+      &C::mie_density,
+      &C::mie_extinction,
+      &C::mie_asymmetry,
+      &C::ozone_absorption,
+      &C::ozone_height,
+      &C::ozone_thickness,
+      &C::aerial_perspective_start_km,
+      &C::aerial_perspective_exposure>();
   }
 
   {
     using C = AutoExposureComponent;
-    registry.bind<&C::min_exposure, &C::max_exposure, &C::adaptation_speed, &C::ev100_bias>().tags<Networked>();
+    registry.bind<&C::min_exposure, &C::max_exposure, &C::adaptation_speed, &C::ev100_bias>();
   }
 
   {
     using C = VignetteComponent;
-    registry.bind<&C::amount>().tags<Networked>();
+    registry.bind<&C::amount>();
   }
 
   {
     using C = ChromaticAberrationComponent;
-    registry.bind<&C::amount>().tags<Networked>();
+    registry.bind<&C::amount>();
   }
 
   {
     using C = FilmGrainComponent;
-    registry.bind<&C::amount, &C::scale>().tags<Networked>();
+    registry.bind<&C::amount, &C::scale>();
   }
 
   // Physics Components
   {
     using C = RigidBodyComponent;
-    registry
-      .bind<
-        &C::allowed_dofs,
-        &C::type,
-        &C::mass,
-        &C::linear_drag,
-        &C::angular_drag,
-        &C::gravity_factor,
-        &C::friction,
-        &C::restitution,
-        &C::allow_sleep,
-        &C::awake,
-        &C::continuous,
-        &C::interpolation,
-        &C::is_sensor>()
-      .tags<Networked>();
+    registry.bind<
+      &C::allowed_dofs,
+      &C::type,
+      &C::mass,
+      &C::linear_drag,
+      &C::angular_drag,
+      &C::gravity_factor,
+      &C::friction,
+      &C::restitution,
+      &C::allow_sleep,
+      &C::awake,
+      &C::continuous,
+      &C::interpolation,
+      &C::is_sensor>();
   }
 
   {
     using C = BoxColliderComponent;
-    registry.bind<&C::size, &C::offset, &C::density, &C::friction, &C::restitution>().tags<Networked>();
+    registry.bind<&C::size, &C::offset, &C::density, &C::friction, &C::restitution>();
   }
 
   {
     using C = SphereColliderComponent;
-    registry.bind<&C::radius, &C::offset, &C::density, &C::friction, &C::restitution>().tags<Networked>();
+    registry.bind<&C::radius, &C::offset, &C::density, &C::friction, &C::restitution>();
   }
 
   {
     using C = CapsuleColliderComponent;
-    registry.bind<&C::height, &C::radius, &C::offset, &C::density, &C::friction, &C::restitution>().tags<Networked>();
+    registry.bind<&C::height, &C::radius, &C::offset, &C::density, &C::friction, &C::restitution>();
   }
 
   {
     using C = TaperedCapsuleColliderComponent;
     registry
-      .bind<&C::height, &C::top_radius, &C::bottom_radius, &C::offset, &C::density, &C::friction, &C::restitution>()
-      .tags<Networked>();
+      .bind<&C::height, &C::top_radius, &C::bottom_radius, &C::offset, &C::density, &C::friction, &C::restitution>();
   }
 
   {
     using C = CylinderColliderComponent;
-    registry.bind<&C::height, &C::radius, &C::offset, &C::density, &C::friction, &C::restitution>().tags<Networked>();
+    registry.bind<&C::height, &C::radius, &C::offset, &C::density, &C::friction, &C::restitution>();
   }
 
   {
     using C = MeshColliderComponent;
-    registry.bind<&C::offset, &C::friction, &C::restitution>().tags<Networked>();
+    registry.bind<&C::offset, &C::friction, &C::restitution>();
   }
 
   {
     using C = CharacterControllerComponent;
-    registry
-      .bind<
-        &C::character_height_standing,
-        &C::character_radius_standing,
-        &C::character_height_crouching,
-        &C::character_radius_crouching,
-        &C::interpolation,
-        &C::control_movement_during_jump,
-        &C::jump_force,
-        &C::auto_bunny_hop,
-        &C::air_control,
-        &C::max_ground_speed,
-        &C::ground_acceleration,
-        &C::ground_deceleration,
-        &C::max_air_speed,
-        &C::air_acceleration,
-        &C::air_deceleration,
-        &C::max_strafe_speed,
-        &C::strafe_acceleration,
-        &C::strafe_deceleration,
-        &C::friction,
-        &C::gravity,
-        &C::collision_tolerance>()
-      .tags<Networked>();
+    registry.bind<
+      &C::character_height_standing,
+      &C::character_radius_standing,
+      &C::character_height_crouching,
+      &C::character_radius_crouching,
+      &C::interpolation,
+      &C::control_movement_during_jump,
+      &C::jump_force,
+      &C::auto_bunny_hop,
+      &C::air_control,
+      &C::max_ground_speed,
+      &C::ground_acceleration,
+      &C::ground_deceleration,
+      &C::max_air_speed,
+      &C::air_acceleration,
+      &C::air_deceleration,
+      &C::max_strafe_speed,
+      &C::strafe_acceleration,
+      &C::strafe_deceleration,
+      &C::friction,
+      &C::gravity,
+      &C::collision_tolerance>();
   }
 
   // Audio Components
   {
     using C = AudioSourceComponent;
-    registry
-      .bind<
-        &C::audio_source,
-        &C::attenuation_model,
-        &C::volume,
-        &C::pitch,
-        &C::play_on_awake,
-        &C::looping,
-        &C::spatialization,
-        &C::roll_off,
-        &C::min_gain,
-        &C::max_gain,
-        &C::min_distance,
-        &C::max_distance,
-        &C::cone_inner_angle,
-        &C::cone_outer_angle,
-        &C::cone_outer_gain,
-        &C::doppler_factor>()
-      .tags<Networked>();
+    registry.bind<
+      &C::audio_source,
+      &C::attenuation_model,
+      &C::volume,
+      &C::pitch,
+      &C::play_on_awake,
+      &C::looping,
+      &C::spatialization,
+      &C::roll_off,
+      &C::min_gain,
+      &C::max_gain,
+      &C::min_distance,
+      &C::max_distance,
+      &C::cone_inner_angle,
+      &C::cone_outer_angle,
+      &C::cone_outer_gain,
+      &C::doppler_factor>();
   }
 
   {
     using C = AudioListenerComponent;
-    registry.bind<&C::active, &C::listener_index, &C::cone_inner_angle, &C::cone_outer_angle, &C::cone_outer_gain>()
-      .tags<Networked>();
+    registry.bind<&C::active, &C::listener_index, &C::cone_inner_angle, &C::cone_outer_angle, &C::cone_outer_gain>();
   }
 
   {
     using C = TonemappingComponent;
-    registry.bind<&C::tonemap_type>().tags<Networked>();
+    registry.bind<&C::tonemap_type>();
   }
 }
 } // namespace ox

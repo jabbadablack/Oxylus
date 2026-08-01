@@ -19,6 +19,17 @@ class EventSystem;
 class Scene;
 struct NetServer;
 
+// The procs this file implements: the ones deciding which worlds exist. Anything acting on the
+// contents of a world is declared by Scene instead. Named constants, not literals - a proc name
+// is matched at runtime, so a typo would otherwise be a silent no-op on both sides.
+namespace proc {
+constexpr auto SCENE_CREATE = std::string_view("scene.create");
+constexpr auto SCENE_PLAY = std::string_view("scene.play");
+constexpr auto SCENE_STOP = std::string_view("scene.stop");
+constexpr auto SCENE_DESTROY = std::string_view("scene.destroy");
+constexpr auto SCENE_LOAD = std::string_view("scene.load");
+} // namespace proc
+
 // The simulation's own host: it owns the headless module registry and hands simulation code the
 // shared services, so nothing on that side has to reach for App.
 //
@@ -75,6 +86,13 @@ public:
   auto create_default_scene(this Server& self, const std::string& name = "Untitled") -> std::shared_ptr<Scene>;
 
   auto scene_count(this const Server& self) -> usize { return self.scenes_.size(); }
+
+  // The scene a proc acts on when nothing names one. Procs carry no scene id yet, unlike
+  // snapshots, so everything lands on the first registered world.
+  auto primary_scene(this const Server& self) -> Scene*;
+
+  // Registers the procs declared above. A member because they reach the scene registry.
+  static auto register_procs(NetServer& net, Server& server) -> void;
 
   // Starts listening for clients. Replication begins as soon as one connects: a full state first,
   // then a delta per network tick. Returns false if the port could not be bound.

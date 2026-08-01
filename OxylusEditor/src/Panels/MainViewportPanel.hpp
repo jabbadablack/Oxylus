@@ -38,6 +38,10 @@ private:
   HandlerId app_close_handler = {};
   HandlerId scene_load_handler = {};
   HandlerId scene_play_handler = {};
+
+  // Last values pushed to the server, so a cvar is sent when it changes rather than every frame.
+  i32 last_sent_draw_bounding_boxes = 0;
+  i32 last_sent_physics_debug = 0;
   HandlerId scene_stop_handler = {};
   bool dock_should_update = false;
   bool fullscreen_viewport = false;

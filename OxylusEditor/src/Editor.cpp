@@ -20,6 +20,7 @@
 #include "Panels/SceneHierarchyPanel.hpp"
 #include "Panels/TextEditorPanel.hpp"
 #include "Render/Window.hpp"
+#include "Scene/Scene.hpp"
 #include "Scene/SceneSnapshot.hpp"
 #include "Server/Server.hpp"
 #include "UI/ImGuiRenderer.hpp"
@@ -376,7 +377,7 @@ auto Editor::close_replica_scene(this Editor& self, const SceneID local_id) -> v
     return;
   }
 
-  App::send_rpc("scene.destroy", std::array{RPCParameter{.value = static_cast<i64>(it->first)}});
+  App::send_rpc(proc::SCENE_DESTROY, std::array{RPCParameter{.value = static_cast<i64>(it->first)}});
   self.closed_scenes.emplace(it->first);
   self.replica_scenes.erase(it);
   self.scene_manager.remove_scene(local_id);
@@ -387,7 +388,7 @@ void Editor::new_scene(this Editor& self) {
 
   // The server makes the scene; the replica and its viewport appear when the first snapshot for
   // the new SceneID arrives. Nothing is created locally, so there is no orphan world.
-  App::send_rpc("scene.create", std::array{RPCParameter{.value = std::string("Untitled")}});
+  App::send_rpc(proc::SCENE_CREATE, std::array{RPCParameter{.value = std::string("Untitled")}});
   static_cast<void>(self);
 }
 
@@ -449,7 +450,7 @@ void Editor::save_scene() {
     auto& job_man = App::get_job_manager();
     // Was a job walking the world while the tick mutated it. Now the server serialises, on
     // the thread that owns the world, and the race is gone with the local write.
-    App::send_rpc("scene.save", std::array{RPCParameter{.value = scene->get_path().string()}});
+    App::send_rpc(proc::SCENE_SAVE, std::array{RPCParameter{.value = scene->get_path().string()}});
   } else {
     save_scene_as();
   }
@@ -492,7 +493,7 @@ void Editor::save_scene_as() {
         const auto path = std::string(first_path_cstr, first_path_len);
 
         if (!path.empty()) {
-          App::send_rpc("scene.save", std::array{RPCParameter{.value = path}});
+          App::send_rpc(proc::SCENE_SAVE, std::array{RPCParameter{.value = path}});
           udata->scene->set_path(path);
         }
 

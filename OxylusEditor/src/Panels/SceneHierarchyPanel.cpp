@@ -10,6 +10,7 @@
 #include "Editor.hpp"
 #include "Networking/NetPacket.hpp"
 #include "Render/DebugRenderer.hpp"
+#include "Scene/Scene.hpp"
 
 namespace ox {
 SceneHierarchyPanel::SceneHierarchyPanel() : EditorPanelState("Scene Hierarchy", ICON_MDI_VIEW_LIST, true) {
@@ -101,9 +102,12 @@ auto SceneHierarchyPanel::on_update(this SceneHierarchyPanel& self) -> void {
     auto json = writer.stream.str();
 
     undo_redo_system->execute_command<LambdaCommand>(
-      [handle] { App::send_rpc("entity.destroy", std::array{RPCParameter{.value = handle}}); },
+      [handle] { App::send_rpc(proc::ENTITY_DESTROY, std::array{RPCParameter{.value = handle}}); },
       [parent_handle, json = std::move(json)] {
-        App::send_rpc("entity.restore", std::array{RPCParameter{.value = parent_handle}, RPCParameter{.value = json}});
+        App::send_rpc(
+          proc::ENTITY_RESTORE,
+          std::array{RPCParameter{.value = parent_handle}, RPCParameter{.value = json}}
+        );
       },
       command_id
     );

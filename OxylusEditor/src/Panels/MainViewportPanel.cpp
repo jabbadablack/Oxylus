@@ -53,7 +53,7 @@ auto MainViewportPanel::init(this MainViewportPanel& self) -> void {
         const auto stopping = editor.scene_manager.try_get_scene(e.scene_id);
         if (stopping && stopping->is_playing()) {
           if (const auto server_id = editor.server_scene_id(e.scene_id); server_id != ~0_u64) {
-            App::send_rpc("scene.stop", std::array{RPCParameter{.value = static_cast<i64>(server_id)}});
+            App::send_rpc(proc::SCENE_STOP, std::array{RPCParameter{.value = static_cast<i64>(server_id)}});
 
             // Same in-flight problem closing a scene had: snapshots for this copy are already on
             // the wire, and the first one back looked like a new scene and reopened the tab - which
@@ -257,6 +257,36 @@ void MainViewportPanel::update(this MainViewportPanel& self, const Timestep& tim
     // which never ticks, so it decided nothing. Play state lives on the server now.
     if (panel_scene) {
       panel->publish_view_request();
+    }
+  }
+
+  // Two of a scene's renderer cvars are read by SERVER-side systems - the bounding-box and physics
+  // debug draws run where the world is simulated. The editor toggles them on its replica, which
+  // nothing reads, so the value has to be sent. Pushed on change rather than every frame.
+  for (const auto& panel : self.viewport_panels) {
+    auto* panel_scene = panel->get_scene();
+    if (!panel_scene) {
+      continue;
+    }
+
+    auto& cvars = panel_scene->get_scene()->renderer_cvar;
+    const auto push = [](const std::string_view name, const i32 value) {
+      App::send_rpc(
+        proc::CVAR_SET,
+        std::array{RPCParameter{.value = std::string(name)}, RPCParameter{.value = static_cast<f32>(value)}}
+      );
+    };
+
+    const auto boxes = cvars.cvar_draw_bounding_boxes.get();
+    if (boxes != self.last_sent_draw_bounding_boxes) {
+      self.last_sent_draw_bounding_boxes = boxes;
+      push("rr.draw_bounding_boxes", boxes);
+    }
+
+    const auto physics = cvars.cvar_enable_physics_debug_renderer.get();
+    if (physics != self.last_sent_physics_debug) {
+      self.last_sent_physics_debug = physics;
+      push("rr.enable_physics_debug_renderer", physics);
     }
   }
 

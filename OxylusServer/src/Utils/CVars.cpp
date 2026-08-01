@@ -154,4 +154,30 @@ auto AutoCVar_String::init(
 }
 auto AutoCVar_String::get() const -> std::string { return system->string_cvars.at(index).current; };
 auto AutoCVar_String::set(std::string&& val) const -> void { system->string_cvars.at(index).current = val; }
+auto CVarSystem::hash_name(const std::string_view name) -> usize {
+  const std::hash<std::string> hasher = {};
+  return hasher(std::string(name));
+}
+
+auto CVarSystem::set_by_name(const std::string_view name, const f64 value) -> bool {
+  const auto hash = hash_name(name);
+
+  auto* parameter = get_cvar(hash);
+  if (parameter == nullptr) {
+    return false;
+  }
+
+  // A ClientOnly cvar is one the client owns outright; a remote set would be the network overwriting
+  // a local preference.
+  if ((static_cast<u32>(parameter->flags) & static_cast<u32>(CVarFlags::ClientOnly)) != 0) {
+    return false;
+  }
+
+  switch (parameter->type) {
+    case CVarType::INT  : set_int_cvar(hash, static_cast<i32>(value)); return true;
+    case CVarType::FLOAT: set_float_cvar(hash, static_cast<f32>(value)); return true;
+    default             : return false;
+  }
+}
+
 } // namespace ox

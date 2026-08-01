@@ -426,8 +426,6 @@ struct AudioListenerComponent {
 
 struct Hidden {};
 
-struct Networked {};
-
 struct CoreComponentsModule {
   CoreComponentsModule(flecs::world& world);
 };

@@ -193,211 +193,20 @@ struct SceneNetServer : NetServer {
   }
 };
 
-auto Server::listen(this Server& self, const u16 port, const u32 max_clients) -> bool {
+auto Server::primary_scene(this const Server& self) -> Scene* {
+  return self.scenes_.empty() ? nullptr : self.scenes_.front().scene.get();
+}
+
+// Which worlds exist, and which of them is running. What happens *inside* a world is
+// registered by register_scene_procs, next to the code that does it.
+auto Server::register_procs(NetServer& net, Server& server) -> void {
   ZoneScoped;
 
-  auto& network = self.registry.get<NetworkManager>();
-  self.net_server_ = network.create_server<SceneNetServer>(port, max_clients, &self);
-
-  if (self.net_server_ == nullptr) {
-    OX_LOG_ERROR("Could not bind port {}.", port);
-    return false;
-  }
-
-  // What the server offers any client. Not editor commands - a game calls these the same way,
-  // and gameplay code or a Lua script registers more with the same call without touching a
-  // single engine header. That openness is the whole point; the closed variant this replaced
-  // meant a new gameplay action had to be added to the engine itself.
-  //
-  // Each handler validates its parameters: a malformed call arrives from another process, so
-  // reading past the end of `params` has to be impossible rather than unlikely.
-  auto scene_of = [&self]() -> Scene* {
-    return self.scenes_.empty() ? nullptr : self.scenes_.front().scene.get();
-  };
-
-  auto entity_arg = [scene_of](std::span<RPCParameter> params, usize index) -> flecs::entity {
-    auto* scene = scene_of();
-    if (scene == nullptr || index >= params.size()) {
-      return {};
-    }
-
-    const auto id = params[index].as_int64();
-    if (!id.has_value()) {
-      return {};
-    }
-
-    // RPCParameter has no u64 alternative, so an entity id crosses as i64 and comes back here.
-    auto entity = scene->world.entity(static_cast<flecs::entity_t>(*id));
-    return entity.is_valid() ? entity : flecs::entity{};
-  };
-
-  auto* net = self.net_server_;
-
-  net->register_proc("entity.destroy", [entity_arg](NetClientID, std::span<RPCParameter> params) {
-    if (auto entity = entity_arg(params, 0)) {
-      entity.destruct();
-    }
-  });
-
-  net->register_proc("entity.rename", [entity_arg](NetClientID, std::span<RPCParameter> params) {
-    if (params.size() < 2) {
-      return;
-    }
-
-    if (auto entity = entity_arg(params, 0)) {
-      entity.set_name(std::string(params[1].as_str()).c_str());
-    }
-  });
-
-  net->register_proc("entity.reparent", [entity_arg](NetClientID, std::span<RPCParameter> params) {
-    auto entity = entity_arg(params, 0);
-    if (!entity) {
-      return;
-    }
-
-    if (auto parent = entity_arg(params, 1)) {
-      entity.child_of(parent);
-    } else {
-      entity.remove(flecs::ChildOf, flecs::Wildcard);
-    }
-  });
-
-  net->register_proc("entity.enable", [entity_arg](NetClientID, std::span<RPCParameter> params) {
-    if (params.size() < 2) {
-      return;
-    }
-
-    if (auto entity = entity_arg(params, 0)) {
-      const auto enabled = params[1].as_int64().value_or(1) != 0;
-      enabled ? entity.enable() : entity.disable();
-    }
-  });
-
-  net->register_proc("entity.clone", [entity_arg, scene_of](NetClientID, std::span<RPCParameter> params) {
-    auto* scene = scene_of();
-    auto entity = entity_arg(params, 0);
-    if (scene == nullptr || !entity) {
-      return;
-    }
-
-    auto name = std::string(entity.name().c_str());
-    while (scene->world.lookup(name.c_str())) {
-      name = fmt::format("{}_clone", name);
-    }
-
-    entity.clone(true).set_name(name.c_str());
-  });
-
-  net->register_proc("entity.create", [scene_of](NetClientID, std::span<RPCParameter> params) {
-    auto* scene = scene_of();
-    if (scene == nullptr || params.size() < 2) {
-      return;
-    }
-
-    auto entity = scene->create_entity(std::string(params[0].as_str()));
-
-    // The archetype is a name, so the client asks for what it wants rather than building it.
-    const auto archetype = params[1].as_str();
-    if (archetype == "sprite") {
-      entity.add<SpriteComponent>();
-    } else if (archetype == "camera") {
-      entity.add<CameraComponent>();
-    } else if (archetype == "light") {
-      entity.add<LightComponent>();
-    } else if (archetype == "sun") {
-      entity.set<LightComponent>({.type = LightComponent::LightType::Directional, .intensity = 10.f})
-        .add<AtmosphereComponent>()
-        .add<AutoExposureComponent>();
-    } else if (archetype == "audio_source") {
-      entity.add<AudioSourceComponent>();
-    }
-  });
-
-  net->register_proc("entity.transform", [entity_arg](NetClientID, std::span<RPCParameter> params) {
-    if (params.size() < 11) {
-      return;
-    }
-
-    auto entity = entity_arg(params, 0);
-    if (!entity) {
-      return;
-    }
-
-    auto f = [&params](const usize i) {
-      return params[i].as_f32().value_or(0.f);
-    };
-
-    entity.set<TransformComponent>({
-      .position = glm::vec3(f(1), f(2), f(3)),
-      .rotation = glm::quat(f(4), f(5), f(6), f(7)),
-      .scale = glm::vec3(f(8), f(9), f(10)),
-    });
-  });
-
-  net->register_proc("entity.component", [entity_arg](NetClientID, std::span<RPCParameter> params) {
-    if (params.size() < 3) {
-      return;
-    }
-
-    auto entity = entity_arg(params, 0);
-    if (!entity) {
-      return;
-    }
-
-    const auto component = params[1].as_int64();
-    if (!component.has_value()) {
-      return;
-    }
-
-    // The reflected encoding from ComponentBlob, never a raw byte copy - several components own
-    // heap storage or hold raw engine pointers.
-    if (!read_component_blob(entity, static_cast<flecs::id_t>(*component), params[2].as_span<u8>())) {
-      OX_LOG_WARN("A replicated component did not apply cleanly.");
-    }
-  });
-
-  net->register_proc("entity.restore", [entity_arg, scene_of](NetClientID, std::span<RPCParameter> params) {
-    auto* scene = scene_of();
-    if (scene == nullptr || params.size() < 2) {
-      return;
-    }
-
-    // Rehydrates a subtree the client captured before deleting it, so a delete can be undone.
-    const auto json = std::string(params[1].as_str());
-    auto parser = simdjson::ondemand::parser{};
-    auto padded = simdjson::padded_string(json);
-    auto doc = parser.iterate(padded);
-    if (doc.error()) {
-      OX_LOG_ERROR("entity.restore: could not parse the captured entity.");
-      return;
-    }
-
-    auto value = doc.get_value();
-    if (value.error()) {
-      return;
-    }
-
-    auto requested_assets = std::vector<UUID>{};
-    static_cast<void>(Scene::json_to_entity(*scene, entity_arg(params, 0), value.value_unsafe(), requested_assets));
-  });
-
-  net->register_proc("model.spawn", [scene_of](NetClientID, std::span<RPCParameter> params) {
-    auto* scene = scene_of();
-    if (scene == nullptr || params.empty()) {
-      return;
-    }
-
-    if (const auto uuid = params[0].as_uuid()) {
-      static_cast<void>(scene->create_model_entity(*uuid));
-    }
-  });
-
-  net->register_proc("scene.create", [&self](NetClientID, std::span<RPCParameter> params) {
+  net.register_proc(proc::SCENE_CREATE, [&server](NetClientID, std::span<RPCParameter> params) {
     const auto name = params.empty() ? std::string_view("Untitled") : params[0].as_str();
-    static_cast<void>(self.create_default_scene(std::string(name)));
+    static_cast<void>(server.create_default_scene(std::string(name)));
   });
-
-  net->register_proc("scene.play", [&self](NetClientID, std::span<RPCParameter> params) {
+  net.register_proc(proc::SCENE_PLAY, [&server](NetClientID, std::span<RPCParameter> params) {
     if (params.empty()) {
       return;
     }
@@ -408,15 +217,15 @@ auto Server::listen(this Server& self, const u16 port, const u32 max_clients) ->
     }
 
     const auto scene_id = static_cast<SceneID>(*id);
-    const auto it = std::ranges::find_if(self.scenes_, [scene_id](const RegisteredScene& r) {
+    const auto it = std::ranges::find_if(server.scenes_, [scene_id](const RegisteredScene& r) {
       return r.id == scene_id;
     });
 
-    if (it == self.scenes_.end()) {
+    if (it == server.scenes_.end()) {
       // Says which ids it does have, because "not found" alone cannot distinguish a stale client
       // mapping from an id that was never assigned the way either side thinks.
       auto held = std::string{};
-      for (const auto& r : self.scenes_) {
+      for (const auto& r : server.scenes_) {
         held += fmt::format("{} ", static_cast<u64>(r.id));
       }
 
@@ -433,8 +242,8 @@ auto Server::listen(this Server& self, const u16 port, const u32 max_clients) ->
       return;
     }
 
-    self.register_scene(copy);
-    self.scenes_.back().playing = true;
+    server.register_scene(copy);
+    server.scenes_.back().playing = true;
     copy->meshes_dirty = true;
 
     // register_scene left the phases off; this copy is the one that actually runs.
@@ -442,8 +251,7 @@ auto Server::listen(this Server& self, const u16 port, const u32 max_clients) ->
     copy->runtime_start();
     OX_LOG_INFO("Playing a copy of scene {}.", *id);
   });
-
-  net->register_proc("scene.stop", [&self](NetClientID, std::span<RPCParameter> params) {
+  net.register_proc(proc::SCENE_STOP, [&server](NetClientID, std::span<RPCParameter> params) {
     if (params.empty()) {
       return;
     }
@@ -454,11 +262,11 @@ auto Server::listen(this Server& self, const u16 port, const u32 max_clients) ->
     }
 
     const auto scene_id = static_cast<SceneID>(*id);
-    const auto it = std::ranges::find_if(self.scenes_, [scene_id](const RegisteredScene& r) {
+    const auto it = std::ranges::find_if(server.scenes_, [scene_id](const RegisteredScene& r) {
       return r.id == scene_id;
     });
 
-    if (it == self.scenes_.end()) {
+    if (it == server.scenes_.end()) {
       OX_LOG_WARN("Asked to stop scene {}, which this server does not have.", *id);
       return;
     }
@@ -470,14 +278,13 @@ auto Server::listen(this Server& self, const u16 port, const u32 max_clients) ->
     // asking it to stop is how the editor lost its world.
     if (it->playing) {
       OX_LOG_INFO("Stopped scene {} and destroyed the play copy.", *id);
-      self.unregister_scene(it->scene.get());
+      server.unregister_scene(it->scene.get());
     } else {
       it->scene->disable_phases({flecs::PreUpdate, flecs::OnUpdate});
       OX_LOG_INFO("Stopped scene {}; it was not a play copy, so it stays.", *id);
     }
   });
-
-  net->register_proc("scene.destroy", [&self](NetClientID, std::span<RPCParameter> params) {
+  net.register_proc(proc::SCENE_DESTROY, [&server](NetClientID, std::span<RPCParameter> params) {
     if (params.empty()) {
       return;
     }
@@ -488,41 +295,46 @@ auto Server::listen(this Server& self, const u16 port, const u32 max_clients) ->
     }
 
     const auto scene_id = static_cast<SceneID>(*id);
-    const auto it = std::ranges::find_if(self.scenes_, [scene_id](const RegisteredScene& r) {
+    const auto it = std::ranges::find_if(server.scenes_, [scene_id](const RegisteredScene& r) {
       return r.id == scene_id;
     });
 
-    if (it != self.scenes_.end()) {
+    if (it != server.scenes_.end()) {
       OX_LOG_INFO("Destroying scene {}.", *id);
-      self.unregister_scene(it->scene.get());
+      server.unregister_scene(it->scene.get());
     } else {
       OX_LOG_WARN("Asked to destroy scene {}, which this server does not have.", *id);
     }
   });
-
-  net->register_proc("scene.load", [&self](NetClientID, std::span<RPCParameter> params) {
+  net.register_proc(proc::SCENE_LOAD, [&server](NetClientID, std::span<RPCParameter> params) {
     if (params.empty()) {
       return;
     }
 
     const auto path = std::string(params[0].as_str());
-    if (!path.empty() && !self.load_scene(path)) {
+    if (!path.empty() && !server.load_scene(path)) {
       OX_LOG_ERROR("Could not load the requested scene.");
     }
   });
+}
 
-  net->register_proc("scene.save", [scene_of](NetClientID, std::span<RPCParameter> params) {
-    auto* scene = scene_of();
-    if (scene == nullptr || params.empty()) {
-      return;
-    }
+auto Server::listen(this Server& self, const u16 port, const u32 max_clients) -> bool {
+  ZoneScoped;
 
-    // Serialised on the thread that owns the world, not by a job racing the tick.
-    const auto path = std::string(params[0].as_str());
-    if (!path.empty() && !scene->save_to_file(path)) {
-      OX_LOG_ERROR("Could not save the scene.");
-    }
-  });
+  auto& network = self.registry.get<NetworkManager>();
+  self.net_server_ = network.create_server<SceneNetServer>(port, max_clients, &self);
+
+  if (self.net_server_ == nullptr) {
+    OX_LOG_ERROR("Could not bind port {}.", port);
+    return false;
+  }
+
+  // Each subsystem registers what it exposes, in the file that owns the logic. Nothing is
+  // enumerated here: when the surface lived in this function, an operation and the code it
+  // called sat in different files and drifted - which is how play state, the camera matrices
+  // and the scene.stop guard each ended up written on one side only.
+  register_scene_procs(*self.net_server_, self);
+  Server::register_procs(*self.net_server_, self);
 
   // The 20 Hz default is tuned for the internet. This is a loopback editor session, where the cost
   // of a tick is a memcpy and the benefit is the editor not feeling laggy.

@@ -25,11 +25,14 @@
 #include "Asset/AssetManager.hpp"
 #include "Core/EventSystem.hpp"
 #include "Memory/Stack.hpp"
+#include "Networking/NetPacket.hpp"
+#include "Networking/NetServer.hpp"
 #include "OS/File.hpp"
 #include "Physics/Physics.hpp"
 #include "Physics/PhysicsInterfaces.hpp"
 #include "Physics/PhysicsMaterial.hpp"
 #include "Render/Camera.hpp"
+#include "Scene/ComponentBlob.hpp"
 #include "Scene/EntitySerializer.hpp"
 #include "Scripting/LuaManager.hpp"
 #include "Server/Server.hpp"
@@ -2092,4 +2095,210 @@ auto Scene::load_from_file(this Scene& self, const std::filesystem::path& path) 
 
   return self.from_json(content);
 }
+// The server-facing surface of a Scene. Every handler here mutates or serialises a world, so
+// it lives with the world - the server only decides which worlds exist.
+auto register_scene_procs(NetServer& net, Server& server) -> void {
+  ZoneScoped;
+
+  auto scene_of = [&server]() -> Scene* {
+    return server.primary_scene();
+  };
+
+  auto entity_arg = [scene_of](std::span<RPCParameter> params, usize index) -> flecs::entity {
+    auto* scene = scene_of();
+    if (scene == nullptr || index >= params.size()) {
+      return {};
+    }
+
+    const auto id = params[index].as_int64();
+    if (!id.has_value()) {
+      return {};
+    }
+
+    // RPCParameter has no u64 alternative, so an entity id crosses as i64 and comes back here.
+    auto entity = scene->world.entity(static_cast<flecs::entity_t>(*id));
+    return entity.is_valid() ? entity : flecs::entity{};
+  };
+
+  net.register_proc(proc::ENTITY_DESTROY, [entity_arg](NetClientID, std::span<RPCParameter> params) {
+    if (auto entity = entity_arg(params, 0)) {
+      entity.destruct();
+    }
+  });
+  net.register_proc(proc::ENTITY_RENAME, [entity_arg](NetClientID, std::span<RPCParameter> params) {
+    if (params.size() < 2) {
+      return;
+    }
+
+    if (auto entity = entity_arg(params, 0)) {
+      entity.set_name(std::string(params[1].as_str()).c_str());
+    }
+  });
+  net.register_proc(proc::ENTITY_REPARENT, [entity_arg](NetClientID, std::span<RPCParameter> params) {
+    auto entity = entity_arg(params, 0);
+    if (!entity) {
+      return;
+    }
+
+    if (auto parent = entity_arg(params, 1)) {
+      entity.child_of(parent);
+    } else {
+      entity.remove(flecs::ChildOf, flecs::Wildcard);
+    }
+  });
+  net.register_proc(proc::ENTITY_ENABLE, [entity_arg](NetClientID, std::span<RPCParameter> params) {
+    if (params.size() < 2) {
+      return;
+    }
+
+    if (auto entity = entity_arg(params, 0)) {
+      const auto enabled = params[1].as_int64().value_or(1) != 0;
+      enabled ? entity.enable() : entity.disable();
+    }
+  });
+  net.register_proc(proc::ENTITY_CLONE, [entity_arg, scene_of](NetClientID, std::span<RPCParameter> params) {
+    auto* scene = scene_of();
+    auto entity = entity_arg(params, 0);
+    if (scene == nullptr || !entity) {
+      return;
+    }
+
+    auto name = std::string(entity.name().c_str());
+    while (scene->world.lookup(name.c_str())) {
+      name = fmt::format("{}_clone", name);
+    }
+
+    entity.clone(true).set_name(name.c_str());
+  });
+  net.register_proc(proc::ENTITY_CREATE, [scene_of](NetClientID, std::span<RPCParameter> params) {
+    auto* scene = scene_of();
+    if (scene == nullptr || params.size() < 2) {
+      return;
+    }
+
+    auto entity = scene->create_entity(std::string(params[0].as_str()));
+
+    // The archetype is a name, so the client asks for what it wants rather than building it.
+    const auto archetype = params[1].as_str();
+    if (archetype == "sprite") {
+      entity.add<SpriteComponent>();
+    } else if (archetype == "camera") {
+      entity.add<CameraComponent>();
+    } else if (archetype == "light") {
+      entity.add<LightComponent>();
+    } else if (archetype == "sun") {
+      entity.set<LightComponent>({.type = LightComponent::LightType::Directional, .intensity = 10.f})
+        .add<AtmosphereComponent>()
+        .add<AutoExposureComponent>();
+    } else if (archetype == "audio_source") {
+      entity.add<AudioSourceComponent>();
+    }
+  });
+  net.register_proc(proc::ENTITY_TRANSFORM, [entity_arg](NetClientID, std::span<RPCParameter> params) {
+    if (params.size() < 11) {
+      return;
+    }
+
+    auto entity = entity_arg(params, 0);
+    if (!entity) {
+      return;
+    }
+
+    auto f = [&params](const usize i) {
+      return params[i].as_f32().value_or(0.f);
+    };
+
+    entity.set<TransformComponent>({
+      .position = glm::vec3(f(1), f(2), f(3)),
+      .rotation = glm::quat(f(4), f(5), f(6), f(7)),
+      .scale = glm::vec3(f(8), f(9), f(10)),
+    });
+  });
+  net.register_proc(proc::ENTITY_COMPONENT, [entity_arg](NetClientID, std::span<RPCParameter> params) {
+    if (params.size() < 3) {
+      return;
+    }
+
+    auto entity = entity_arg(params, 0);
+    if (!entity) {
+      return;
+    }
+
+    const auto component = params[1].as_int64();
+    if (!component.has_value()) {
+      return;
+    }
+
+    // The reflected encoding from ComponentBlob, never a raw byte copy - several components own
+    // heap storage or hold raw engine pointers.
+    if (!read_component_blob(entity, static_cast<flecs::id_t>(*component), params[2].as_span<u8>())) {
+      OX_LOG_WARN("A replicated component did not apply cleanly.");
+    }
+  });
+  net.register_proc(proc::ENTITY_RESTORE, [entity_arg, scene_of](NetClientID, std::span<RPCParameter> params) {
+    auto* scene = scene_of();
+    if (scene == nullptr || params.size() < 2) {
+      return;
+    }
+
+    // Rehydrates a subtree the client captured before deleting it, so a delete can be undone.
+    const auto json = std::string(params[1].as_str());
+    auto parser = simdjson::ondemand::parser{};
+    auto padded = simdjson::padded_string(json);
+    auto doc = parser.iterate(padded);
+    if (doc.error()) {
+      OX_LOG_ERROR("entity.restore: could not parse the captured entity.");
+      return;
+    }
+
+    auto value = doc.get_value();
+    if (value.error()) {
+      return;
+    }
+
+    auto requested_assets = std::vector<UUID>{};
+    static_cast<void>(Scene::json_to_entity(*scene, entity_arg(params, 0), value.value_unsafe(), requested_assets));
+  });
+  net.register_proc(proc::MODEL_SPAWN, [scene_of](NetClientID, std::span<RPCParameter> params) {
+    auto* scene = scene_of();
+    if (scene == nullptr || params.empty()) {
+      return;
+    }
+
+    if (const auto uuid = params[0].as_uuid()) {
+      static_cast<void>(scene->create_model_entity(*uuid));
+    }
+  });
+  net.register_proc(proc::SCENE_SAVE, [scene_of](NetClientID, std::span<RPCParameter> params) {
+    auto* scene = scene_of();
+    if (scene == nullptr || params.empty()) {
+      return;
+    }
+
+    // Serialised on the thread that owns the world, not by a job racing the tick.
+    const auto path = std::string(params[0].as_str());
+    if (!path.empty() && !scene->save_to_file(path)) {
+      OX_LOG_ERROR("Could not save the scene.");
+    }
+  });
+
+  net.register_proc(proc::CVAR_SET, [scene_of](NetClientID, std::span<RPCParameter> params) {
+    auto* scene = scene_of();
+    if (scene == nullptr || params.size() < 2) {
+      return;
+    }
+
+    const auto name = params[0].as_str();
+    const auto value = params[1].as_f32();
+    if (name.empty() || !value.has_value()) {
+      return;
+    }
+
+    // The scene's own cvar system: these are per scene, and the systems that read them run here.
+    if (!scene->renderer_cvar.system.set_by_name(name, static_cast<f64>(*value))) {
+      OX_LOG_WARN("Ignored a set of unknown or client-only cvar \"{}\".", name);
+    }
+  });
+}
+
 } // namespace ox

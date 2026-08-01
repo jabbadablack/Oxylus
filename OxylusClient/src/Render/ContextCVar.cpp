@@ -21,9 +21,16 @@ ContextCVar::~ContextCVar() {
 auto ContextCVar::init(this ContextCVar& self) -> void {
   ZoneScoped;
 
-  self.cvar_vsync.init(self.system, "rr.vsync", "toggle vsync", 1);
-  self.cvar_frame_limit
-    .init(self.system, "rr.frame_limit", "Limits the framerate with a sleep. 0: Disable, > 0: Enable", 0);
+  // ClientOnly: these describe this machine's display, not the world. A server has no business
+  // setting them, and set_by_name refuses a remote write.
+  self.cvar_vsync.init(self.system, "rr.vsync", "toggle vsync", 1, CVarFlags::ClientOnly);
+  self.cvar_frame_limit.init(
+    self.system,
+    "rr.frame_limit",
+    "Limits the framerate with a sleep. 0: Disable, > 0: Enable",
+    0,
+    CVarFlags::ClientOnly
+  );
 }
 
 auto ContextCVar::save(this ContextCVar& self) -> void {
