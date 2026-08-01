@@ -1039,4 +1039,16 @@ auto AssetManager::unload_model(this AssetManager& self, ReadGuard<Asset> asset)
   return true;
 }
 
+// Hands the presentation half's loaders to the simulation-side registry. Called from App::init,
+// the same shape as bind_client_lua_bindings(). Nothing calls this in a headless process, which is
+// exactly what makes AssetManager.cpp linkable without a renderer.
+auto install_client_asset_loaders() -> void {
+  AssetManager::install_loaders({
+    .load_model = &AssetManager::load_model,
+    .load_texture = &AssetManager::load_texture,
+    .texture_extent = &texture_extent_of,
+    .write_gltf_meta = &AssetManager::write_gltf_meta,
+  });
+}
+
 } // namespace ox

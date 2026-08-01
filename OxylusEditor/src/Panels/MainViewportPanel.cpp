@@ -6,6 +6,7 @@
 
 #include "Core/App.hpp"
 #include "Editor.hpp"
+#include "Server/Server.hpp"
 #include "UI/PayloadData.hpp"
 #include "UI/UI.hpp"
 
@@ -229,17 +230,28 @@ void MainViewportPanel::update(this MainViewportPanel& self, const Timestep& tim
       }
     }
 
+    // Views and play state are per panel, so they are stated here; the tick itself is not. It used
+    // to live in this loop, which meant a scene simulated only while a panel drew it - and twice
+    // per frame if two panels showed the same one.
     if (panel_scene) {
       panel->publish_view_request();
 
       if (panel_scene->is_playing()) {
         panel_scene->get_scene()->enable_all_phases();
-        panel_scene->get_scene()->runtime_update(timestep);
       } else {
         panel_scene->get_scene()->disable_phases({flecs::PreUpdate, flecs::OnUpdate});
-        panel_scene->get_scene()->runtime_update(timestep);
       }
+    }
+  }
 
+  // One tick for every registered scene, after every view request for this frame has been
+  // published and before anything reads the snapshot it produces.
+  Server::get()->tick(timestep);
+
+  for (const auto& panel : self.viewport_panels) {
+    auto* panel_scene = panel->get_scene();
+
+    if (panel_scene) {
       // The simulation is done for this tick; the view now turns its snapshot into GPU state.
       panel->render_scene.prepare(panel_scene->get_scene()->frame_snapshot, panel_scene->get_scene()->renderer_cvar);
     }

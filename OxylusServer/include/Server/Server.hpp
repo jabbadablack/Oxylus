@@ -1,0 +1,112 @@
+#pragma once
+
+#include <expected>
+#include <filesystem>
+#include <memory>
+#include <span>
+#include <vector>
+
+#include "Core/ModuleRegistry.hpp"
+#include "Utils/Timestep.hpp"
+
+namespace ox {
+class VFS;
+class JobManager;
+class EventSystem;
+class Scene;
+
+// The simulation's own host: it owns the headless module registry and hands simulation code the
+// shared services, so nothing on that side has to reach for App.
+//
+// This exists because App owns the window and the render context. Any simulation source that called
+// App::mod<T>() therefore dragged vuk and SDL in behind it, which is what kept Scene, Physics,
+// Scripting and Networking out of the headless target. A dedicated server is a Server and a main();
+// in the editor, App owns one.
+//
+// Modules opt in by declaring `constexpr static bool SERVER_MODULE = true;`. App::with<T>() and
+// App::mod<T>() route those here automatically, so presentation code keeps its existing spelling.
+class Server {
+public:
+  // Standalone: the server process has no App, so it owns the shared services itself and brings
+  // them up in init(). This is the constructor OxylusServer's main() uses.
+  explicit Server(std::filesystem::path assets_directory = "Resources");
+
+  // Hosted: the editor's App already owns these, so borrow them rather than running a second set.
+  Server(VFS& vfs, JobManager& job_manager, EventSystem& event_system, const Timestep& timestep);
+
+  ~Server();
+
+  Server(const Server&) = delete;
+  Server& operator=(const Server&) = delete;
+
+  static auto get() -> Server* { return instance_; }
+  static auto set_instance(Server* instance) -> void;
+
+  auto init(this Server& self) -> std::expected<void, std::string>;
+  auto deinit(this Server& self) -> std::expected<void, std::string>;
+
+  // Scenes the simulation ticks. The client registers them; the simulation does not know what an
+  // editor tab or a viewport is, so it will not stop ticking a scene just because nothing is
+  // looking at it. That was the old behaviour: the tick lived inside the viewport panel loop, so a
+  // scene simulated only while a panel drew it, and twice per frame if two panels did.
+  auto register_scene(this Server& self, const std::shared_ptr<Scene>& scene) -> void;
+  auto unregister_scene(this Server& self, const Scene* scene) -> void;
+
+  // Runs one tick of every registered scene. The single tick point for the whole simulation: the
+  // editor calls it once a frame, and the server process will call it from its own loop.
+  auto tick(this Server& self, const Timestep& timestep) -> void;
+
+  // Standalone only: advances the owned Timestep and ticks once, pacing to the configured rate.
+  // Returns the Timestep it advanced so a caller can report frame times.
+  auto tick_owned(this Server& self) -> const Timestep&;
+
+  // Standalone only. Ticks per second; the owned Timestep sleeps out the remainder of each tick.
+  auto set_tick_rate(this Server& self, f64 ticks_per_second) -> void;
+
+  // Loads a scene from disk, registers it, and returns it. Null on failure.
+  auto load_scene(this Server& self, const std::filesystem::path& path) -> std::shared_ptr<Scene>;
+
+  auto scenes(this const Server& self) -> std::span<const std::shared_ptr<Scene>> { return self.scenes_; }
+
+  template <typename T, typename... Args>
+  auto add(this Server& self, Args&&... args) -> void {
+    self.registry.add<T>(std::forward<Args>(args)...);
+  }
+
+  template <typename T>
+  static auto mod() -> T& {
+    return get()->registry.get<T>();
+  }
+
+  template <typename T>
+  static auto has_mod() -> bool {
+    return get()->registry.has<T>();
+  }
+
+  static auto get_vfs() -> VFS&;
+  static auto get_job_manager() -> JobManager&;
+  static auto get_event_system() -> EventSystem&;
+  static auto get_timestep() -> const Timestep&;
+
+private:
+  // Declared before the references below so it is constructed first - they bind into it. Only the
+  // standalone constructor fills it in; the hosted one leaves it null and borrows App's services.
+  struct OwnedServices;
+  // No `= nullptr`: a default member initializer would instantiate unique_ptr's deleter here,
+  // where OwnedServices is still incomplete. The constructors in the .cpp do it instead.
+  std::unique_ptr<OwnedServices> owned_;
+
+  std::filesystem::path assets_directory_ = {};
+
+  static Server* instance_;
+
+  VFS& vfs_;
+  JobManager& job_manager_;
+  EventSystem& event_system_;
+  const Timestep& timestep_;
+
+  ModuleRegistry registry = {};
+
+  std::vector<std::shared_ptr<Scene>> scenes_ = {};
+};
+} // namespace ox

@@ -16,7 +16,7 @@
 #include "UI/PayloadData.hpp"
 #include "UI/UI.hpp"
 #include "Utils/EditorTheme.hpp"
-#include "Utils/SimCommandRecord.hpp"
+#include "Utils/ServerCommandRecord.hpp"
 
 namespace ox {
 struct EntityInspector : IEntitySerializer {
@@ -693,12 +693,12 @@ void InspectorPanel::draw_components(this InspectorPanel& self, flecs::entity en
         auto after_blob = std::vector<u8>{};
         if (have_before && write_component_blob(entity, fid, after_blob)) {
           const auto handle = static_cast<EntityHandle>(entity.id());
-          undo_redo_system->execute_command<SimCommandRecord>(
+          undo_redo_system->execute_command<ServerCommandRecord>(
             App::mod<Editor>().get_selected_scene(),
-            SimCommand{
+            ServerCommand{
               .payload = CmdSetComponent{.entity = handle, .state = ComponentState{.id = fid, .buffer = after_blob}},
             },
-            SimCommand{
+            ServerCommand{
               .payload = CmdSetComponent{.entity = handle, .state = ComponentState{.id = fid, .buffer = before_blob}},
             },
             std::string(ty.name().c_str()),

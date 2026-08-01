@@ -7,7 +7,7 @@
 #include "Render/Renderer.hpp"
 #include "Render/RendererCVar.hpp"
 #include "Render/RendererInstance.hpp"
-#include "Sim/FrameSnapshot.hpp"
+#include "Server/FrameSnapshot.hpp"
 
 namespace ox {
 // The presentation-side counterpart to a Scene: it owns the renderer instance for one view and

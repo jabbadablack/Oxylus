@@ -164,3 +164,26 @@ endfunction()
 function(ox_configure_dependencies)
   _ox_configure_dependency_dir("${CMAKE_SOURCE_DIR}")
 endfunction()
+
+# Per-target settings that do not propagate through target_link_libraries and so must be applied
+# to each engine target individually.
+function(ox_configure_engine_target _target)
+  set_target_properties(${_target} PROPERTIES
+    CXX_EXTENSIONS OFF
+    POSITION_INDEPENDENT_CODE ON
+    ARCHIVE_OUTPUT_DIRECTORY "${OX_OUTPUT_DIR}")
+
+  target_link_libraries(${_target} PRIVATE ox_project_options)
+
+  # Guards #ifdef blocks in ComponentRegistry.hpp, Components.cpp and LuaManager.cpp, which live on
+  # both sides of the split - so both targets need it.
+  if(OX_LUA_BINDINGS)
+    target_compile_definitions(${_target} PRIVATE OX_LUA_BINDINGS)
+  endif()
+
+  if(MSVC)
+    target_compile_options(${_target} PRIVATE /FItracy/Tracy.hpp)
+  else()
+    target_compile_options(${_target} PRIVATE "SHELL:-include tracy/Tracy.hpp")
+  endif()
+endfunction()

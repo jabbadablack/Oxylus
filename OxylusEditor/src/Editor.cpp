@@ -18,6 +18,7 @@
 #include "Panels/SceneHierarchyPanel.hpp"
 #include "Panels/TextEditorPanel.hpp"
 #include "Render/Window.hpp"
+#include "Server/Server.hpp"
 #include "UI/ImGuiRenderer.hpp"
 #include "UI/RmlUI.hpp"
 #include "UI/UI.hpp"

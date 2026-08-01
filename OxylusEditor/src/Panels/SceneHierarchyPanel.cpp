@@ -9,7 +9,7 @@
 #include "Core/App.hpp"
 #include "Editor.hpp"
 #include "Render/DebugRenderer.hpp"
-#include "Utils/SimCommandRecord.hpp"
+#include "Utils/ServerCommandRecord.hpp"
 
 namespace ox {
 SceneHierarchyPanel::SceneHierarchyPanel() : EditorPanelState("Scene Hierarchy", ICON_MDI_VIEW_LIST, true) {
@@ -102,10 +102,10 @@ auto SceneHierarchyPanel::on_update(this SceneHierarchyPanel& self) -> void {
     Scene::entity_to_json(writer, entity);
 
     const auto parent = entity.parent();
-    undo_redo_system->execute_command<SimCommandRecord>(
+    undo_redo_system->execute_command<ServerCommandRecord>(
       scene,
-      SimCommand{.payload = CmdDestroyEntity{.entity = static_cast<EntityHandle>(entity.id())}},
-      SimCommand{
+      ServerCommand{.payload = CmdDestroyEntity{.entity = static_cast<EntityHandle>(entity.id())}},
+      ServerCommand{
         .payload =
           CmdRestoreEntity{
             .parent = parent != flecs::entity::null() ? static_cast<EntityHandle>(parent.id()) : EntityHandle::Invalid,

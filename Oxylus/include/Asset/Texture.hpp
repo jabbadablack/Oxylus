@@ -9,6 +9,7 @@
 #include "Asset/Fwd.hpp"
 #include "Asset/TextureLoadInfo.hpp"
 #include "Core/Types.hpp"
+#include "Core/UUID.hpp"
 #include "Render/RenderContext.hpp"
 
 using Preset = vuk::ImageAttachment::Preset;
@@ -123,5 +124,11 @@ public:
     return static_cast<u32>(log2f(static_cast<f32>(std::max(std::max(extent.width, extent.height), extent.depth)))) + 1;
   }
 };
+
+class AssetManager;
+
+// Hook target behind AssetManager::get_texture_extent. Declared here rather than in
+// AssetManager.hpp because it needs a live Texture, which the simulation half must never name.
+auto texture_extent_of(AssetManager& self, const UUID& uuid) -> glm::uvec2;
 
 } // namespace ox

@@ -20,10 +20,10 @@ foreach(_src IN LISTS OX_TEST_SOURCES)
 
   target_include_directories(${_name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
-  # Tests under tests/Sim/ link the headless half only. That is what makes them a boundary check
+  # Tests under tests/Server/ link the headless half only. That is what makes them a boundary check
   # and not just a test: pulling in anything vuk- or SDL-shaped fails to link here.
-  if(_src MATCHES "/tests/Sim/")
-    set(_engine_lib ox::OxylusSim)
+  if(_src MATCHES "/tests/Server/")
+    set(_engine_lib ox::OxylusServerLib)
   else()
     set(_engine_lib ox::Oxylus)
   endif()

@@ -17,7 +17,7 @@
 #include "UI/PayloadData.hpp"
 #include "UI/UI.hpp"
 #include "Utils/OxMath.hpp"
-#include "Utils/SimCommandRecord.hpp"
+#include "Utils/ServerCommandRecord.hpp"
 
 namespace ox {
 struct GizmoInfo {
@@ -382,8 +382,8 @@ auto ViewportPanel::publish_view_request(this ViewportPanel& self) -> void {
   scene->view_requests.clear();
   scene->view_requests.push_back(
     ViewRequest{
-      .view_id = static_cast<SimViewID>(0),
-      .source = playing ? SimCameraSource::SimEntity : SimCameraSource::ClientSupplied,
+      .view_id = static_cast<ServerViewID>(0),
+      .source = playing ? ServerCameraSource::SimEntity : ServerCameraSource::ClientSupplied,
       .camera_entity = EntityHandle::Invalid,
       .viewport_size = extent,
       .viewport_offset = glm::uvec2(static_cast<u32>(self.viewport_offset.x), static_cast<u32>(self.viewport_offset.y)),
@@ -892,7 +892,7 @@ void ViewportPanel::draw_gizmos(this ViewportPanel& self) {
 
         const auto handle = static_cast<EntityHandle>(selected_entity.id());
         const auto to_command = [handle](const TransformComponent& t) {
-          return SimCommand{
+          return ServerCommand{
             .payload = CmdSetTransform{
               .entity = handle,
               .position = t.position,
@@ -902,7 +902,7 @@ void ViewportPanel::draw_gizmos(this ViewportPanel& self) {
           };
         };
 
-        undo_redo_system->execute_command<SimCommandRecord>(
+        undo_redo_system->execute_command<ServerCommandRecord>(
           self.editor_scene->get_scene().get(),
           to_command(after),
           to_command(before),

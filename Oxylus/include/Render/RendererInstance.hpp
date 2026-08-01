@@ -7,7 +7,7 @@
 #include "Render/Renderer.hpp"
 #include "Render/RendererCVar.hpp"
 #include "Scene/SceneGPU.hpp"
-#include "Sim/FrameSnapshot.hpp"
+#include "Server/FrameSnapshot.hpp"
 
 namespace ox {
 // vuk::Extent3D and GPU::Extent3D are layout-compatible; this is the one place that bridges them.

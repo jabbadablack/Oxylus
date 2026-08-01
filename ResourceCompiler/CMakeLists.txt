@@ -23,7 +23,7 @@ target_compile_definitions(ResourceCompiler PRIVATE OXRC_EXPORTS=1)
 target_link_libraries(ResourceCompiler
   PRIVATE
     ox_project_options
-    ox::OxylusSim
+    ox::OxylusServerLib
     slang::slang
     SPIRV-Tools-opt
     ox_zpp_bits)
@@ -47,7 +47,7 @@ target_link_libraries(rcli
   PRIVATE
     ox_project_options
     ox::ResourceCompiler
-    ox::OxylusSim
+    ox::OxylusServerLib
     fmt::fmt
     tomlplusplus::tomlplusplus
     slang::slang)

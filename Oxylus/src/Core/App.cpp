@@ -3,6 +3,7 @@
 #include <SDL3/SDL_filesystem.h>
 #include <vuk/vsl/Core.hpp>
 
+#include "Asset/AssetManager.hpp"
 #include "Core/EventSystem.hpp"
 #include "Core/Input.hpp"
 #include "Core/JobManager.hpp"
@@ -36,7 +37,7 @@ App::App(int argc, char** argv) {
 
   // Built here rather than in init(): with<T>() runs against the builder before init(), and
   // simulation modules have to have somewhere to land.
-  sim_host = std::make_unique<SimHost>(vfs, job_manager, event_system, timestep);
+  sim_host = std::make_unique<Server>(vfs, job_manager, event_system, timestep);
 }
 
 App::~App() {
@@ -81,6 +82,11 @@ auto App::init(this App& self) -> void {
     OX_LOG_INFO("Initalized EventSystem.");
   else
     OX_LOG_ERROR("Failed to initalize EventSystem: {}", event_system_init_result.error());
+
+  // Before sim_host->init(), not after: the registry is simulation-side but materialising a model
+  // or a texture is GPU work, so the client hands its loaders over first. Installing them late
+  // would silently no-op any asset loaded during initialisation.
+  install_client_asset_loaders();
 
   if (const auto sim_init_result = self.sim_host->init(); !sim_init_result.has_value()) {
     OX_LOG_ERROR("Failed to initalize simulation: {}", sim_init_result.error());

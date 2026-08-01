@@ -25,6 +25,8 @@ include(OxBuild)
 include(OxHelpers)
 include(Dependencies)
 
+# The server half first: Oxylus links OxylusServerLib, so its alias has to exist by then.
+add_subdirectory(OxylusServer)
 add_subdirectory(Oxylus)
 add_subdirectory(ResourceCompiler)
 

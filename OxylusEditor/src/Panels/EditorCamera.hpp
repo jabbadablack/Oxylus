@@ -5,7 +5,7 @@
 
 #include "Core/Types.hpp"
 #include "Scene/Components.hpp"
-#include "Sim/FrameSnapshot.hpp"
+#include "Server/FrameSnapshot.hpp"
 
 namespace ox {
 // The editor's fly-cam, owned by the viewport that draws through it.

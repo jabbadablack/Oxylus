@@ -1,0 +1,214 @@
+#pragma once
+
+// clang-format off
+#include <Jolt/Jolt.h>
+#include <Jolt/Core/Core.h>
+#include <Jolt/Physics/Body/Body.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/PhysicsSystem.h>
+// clang-format on
+
+#include <simdjson.h>
+
+#include "Asset/Fwd.hpp"
+#include "Asset/Model.hpp"
+#include "Core/UUID.hpp"
+#include "Memory/SlotMap.hpp"
+#include "Physics/PhysicsDebugRenderer.hpp"
+#include "Physics/PhysicsInterfaces.hpp"
+#include "Render/RendererCVar.hpp"
+#include "Scene/Components.hpp"
+#include "Scene/DebugDrawList.hpp"
+#include "Scene/SceneGPU.hpp"
+#include "Scripting/LuaSystem.hpp"
+#include "Server/SceneExtractor.hpp"
+#include "Utils/Timestep.hpp"
+
+template <>
+struct ankerl::unordered_dense::hash<flecs::id> {
+  using is_avalanching = void;
+  u64 operator()(const flecs::id& v) const noexcept {
+    return ankerl::unordered_dense::detail::wyhash::hash(&v, sizeof(flecs::id));
+  }
+};
+
+template <>
+struct ankerl::unordered_dense::hash<flecs::entity> {
+  using is_avalanching = void;
+  u64 operator()(const flecs::entity& v) const noexcept {
+    return ankerl::unordered_dense::detail::wyhash::hash(&v, sizeof(flecs::entity));
+  }
+};
+
+namespace ox {
+struct JsonWriter;
+class Scene;
+
+// Emitted when a scene leaves play mode. The presentation side uses it to hide UI documents,
+// which used to be done from inside Scene::runtime_stop.
+struct SceneRuntimeStopEvent {
+  Scene* scene = nullptr;
+};
+
+struct ComponentDB {
+  std::vector<flecs::id> components = {};
+  std::vector<flecs::entity> imported_modules = {};
+
+  auto import_module(this ComponentDB&, flecs::entity module) -> void;
+  auto is_component_known(this ComponentDB&, flecs::id component_id) -> bool;
+  auto get_components(this ComponentDB&) -> std::span<flecs::id>;
+};
+
+class Scene {
+public:
+  std::string scene_name = "Untitled";
+
+  flecs::world world;
+  ComponentDB component_db = {};
+
+  f32 physics_interval = 1.f / 60.f; // used only on initialization
+
+  std::vector<GPU::TransformID> dirty_transforms = {};
+  std::vector<MeshInstanceID> dirty_mesh_instances = {};
+  SlotMap<GPU::Transforms, GPU::TransformID> transforms = {};
+  ankerl::unordered_dense::map<flecs::entity, GPU::TransformID> entity_transforms_map = {};
+  ankerl::unordered_dense::map<u32, flecs::entity> transform_index_entities_map = {};
+
+  RendererCVar renderer_cvar = {};
+
+  // Simulation-side debug geometry: bounding boxes from the aabb systems, shapes from Jolt. The
+  // renderer drains it; the scene never learns how it is drawn.
+  DebugDrawList debug_draw_list = {};
+
+  // One frame of extracted state, rebuilt at the end of every tick and handed to the renderer.
+  SceneExtractor extractor = {};
+  FrameSnapshot frame_snapshot = {};
+  std::vector<ViewRequest> view_requests = {};
+
+  // Extent of whichever view is bound to `camera_entity`, falling back to the first requested view
+  // and then to a fixed default so a headless tick still produces sane projection matrices.
+  auto viewport_extent_for(this const Scene& self, flecs::entity camera_entity) -> glm::uvec2;
+
+  SlotMap<MeshInstance, MeshInstanceID> mesh_instances = {};
+  ankerl::unordered_dense::map<flecs::entity, MeshInstanceID> entity_to_mesh_instance_map = {};
+
+  bool meshes_dirty = false;
+  u32 gpu_mesh_instance_count = 0;
+  u32 max_meshlet_instance_count = 0;
+
+  explicit Scene(const std::string& name = "Untitled");
+
+  ~Scene();
+
+  auto init(this Scene& self, const std::string& name) -> void;
+
+  auto physics_init(this Scene& self) -> void;
+  auto physics_deinit(this Scene& self) -> void;
+
+  auto runtime_start(this Scene& self) -> void;
+  auto runtime_stop(this Scene& self) -> void;
+  auto runtime_update(this Scene& self, const Timestep& delta_time) -> void;
+
+  auto defer_function(this Scene& self, const std::function<void(Scene* scene)>& func) -> void;
+
+  auto disable_phases(const std::vector<flecs::entity_t>& phases) -> void;
+  auto enable_all_phases() -> void;
+
+  auto is_running() const -> bool { return running; }
+
+  auto create_entity(const std::string& name = "", bool safe_naming = false) const -> flecs::entity;
+
+  auto create_model_entity(this Scene& self, const UUID& asset_uuid) -> flecs::entity;
+  auto attach_mesh(
+    this Scene& self, flecs::entity entity, const UUID& model_uuid, usize mesh_index, const UUID& material_uuid = {}
+  ) -> bool;
+  auto detach_mesh(this Scene& self, flecs::entity entity) -> bool;
+
+  static auto copy(const std::shared_ptr<Scene>& src_scene) -> std::shared_ptr<Scene>;
+
+  static auto get_world_position(flecs::entity entity) -> glm::vec3;
+  static auto get_world_transform(flecs::entity entity) -> glm::mat4;
+  static auto get_local_transform(flecs::entity entity) -> glm::mat4;
+
+  auto get_entity_transform_id(flecs::entity entity) const -> option<GPU::TransformID>;
+  auto get_entity_transform(GPU::TransformID transform_id) const -> const GPU::Transforms*;
+
+  auto set_dirty(this Scene& self, flecs::entity entity) -> void;
+
+  // Returns `prefix` (or a non-conflicting variant) that is free both at the
+  // world root and under `parent`'s child scope. Pass an invalid `parent` to
+  // only check the world root. This is needed because flecs registers child
+  // names in the parent's own name index when `child_of` is added, so a name
+  // that's free at the root can still conflict under a parent.
+  auto safe_entity_name(this const Scene& self, std::string prefix, flecs::entity parent = {}) -> std::string;
+
+  auto get_lua_system(this const Scene& self, const UUID& lua_script) -> LuaSystem*;
+  auto get_lua_systems(this const Scene& self) -> const ankerl::unordered_dense::map<UUID, LuaSystem*>&;
+  auto add_lua_system(this Scene& self, const UUID& lua_script) -> void;
+  auto remove_lua_system(this Scene& self, const UUID& lua_script) -> void;
+
+  // Physics
+  auto get_physics_system(this const Scene& self) -> JPH::PhysicsSystem*;
+  auto cast_ray(this const Scene& self, const RayCast& ray_cast)
+    -> JPH::AllHitCollisionCollector<JPH::RayCastBodyCollector>;
+  auto on_contact_added(
+    const JPH::Body& body1,
+    const JPH::Body& body2,
+    const JPH::ContactManifold& manifold,
+    const JPH::ContactSettings& settings
+  ) -> void;
+  auto on_contact_persisted(
+    const JPH::Body& body1,
+    const JPH::Body& body2,
+    const JPH::ContactManifold& manifold,
+    const JPH::ContactSettings& settings
+  ) -> void;
+  auto on_contact_removed(const JPH::SubShapeIDPair& sub_shape_pair) -> void;
+
+  auto on_body_activated(const JPH::BodyID& body_id, JPH::uint64 body_user_data) -> void;
+  auto on_body_deactivated(const JPH::BodyID& body_id, JPH::uint64 body_user_data) -> void;
+
+  auto create_rigidbody(
+    this Scene& self, flecs::entity entity, const TransformComponent& transform, RigidBodyComponent& component
+  ) -> void;
+  auto create_character_controller(
+    flecs::entity entity, const TransformComponent& transform, CharacterControllerComponent& component
+  ) const -> void;
+
+  static auto entity_to_json(JsonWriter& writer, flecs::entity e) -> void;
+  static auto json_to_entity(
+    Scene& self, //
+    flecs::entity root,
+    simdjson::ondemand::value& json,
+    std::vector<UUID>& requested_assets
+  ) -> flecs::entity;
+
+  auto to_json(this const Scene& self) -> JsonWriter;
+  auto from_json(this Scene& self, const std::string& json) -> bool;
+  auto save_to_file(this const Scene& self, const std::filesystem::path& path) -> bool;
+  auto load_from_file(this Scene& self, const std::filesystem::path& path) -> bool;
+
+private:
+  bool running = false;
+  bool deserializing_entity = false;
+
+  std::vector<std::function<void(Scene* scene)>> deferred_functions_ = {};
+
+  // Lua
+  ankerl::unordered_dense::map<UUID, LuaSystem*> lua_systems = {};
+
+  // Physics
+  f32 physics_accumulator = 0.f;
+  std::shared_mutex physics_mutex = {};
+  std::unique_ptr<JPH::PhysicsSystem> physics_system = nullptr;
+  std::unique_ptr<PhysicsDebugRenderer> physics_debug_renderer = nullptr;
+  std::unique_ptr<Physics3DContactListener> contact_listener_3d = nullptr;
+  std::unique_ptr<Physics3DBodyActivationListener> body_activation_listener_3d = nullptr;
+
+  auto add_transform(this Scene& self, flecs::entity entity) -> GPU::TransformID;
+  auto remove_transform(this Scene& self, flecs::entity entity) -> void;
+
+  auto run_deferred_functions(this Scene& self) -> void;
+};
+} // namespace ox

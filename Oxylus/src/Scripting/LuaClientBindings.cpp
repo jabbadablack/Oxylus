@@ -1,5 +1,5 @@
 #include "Scripting/LuaManager.hpp"
-#include "Sim/SimHost.hpp"
+#include "Server/Server.hpp"
 
 #ifdef OX_LUA_BINDINGS
   #include "Scripting/LuaApplicationBindings.hpp" // IWYU pragma: export
@@ -14,12 +14,12 @@ namespace ox {
 auto bind_client_lua_bindings() -> void {
   ZoneScoped;
 
-  if (!SimHost::has_mod<LuaManager>()) {
+  if (!Server::has_mod<LuaManager>()) {
     return;
   }
 
 #ifdef OX_LUA_BINDINGS
-  auto& lua_manager = SimHost::mod<LuaManager>();
+  auto& lua_manager = Server::mod<LuaManager>();
   auto* state = lua_manager.get_state();
   if (state == nullptr) {
     return;

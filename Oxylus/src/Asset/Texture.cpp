@@ -13,6 +13,7 @@
 #include <vuk/runtime/vk/AllocatorHelpers.hpp>
 #include <vuk/vsl/Core.hpp>
 
+#include "Asset/AssetManager.hpp"
 #include "Core/App.hpp"
 #include "Memory/Stack.hpp"
 #include "OS/File.hpp"
@@ -574,6 +575,106 @@ auto TextureView::discard(this const TextureView& self, std::string_view name, O
   ZoneScoped;
 
   return vuk::discard_ia(name.empty() ? default_resource_name(LOC) : vuk::Name{name}, self.attachment, LOC);
+}
+
+// The asset manager's texture-owning half. It lives here, on the presentation side, because every
+// line of it needs a complete Texture - which owns vuk images. AssetManager.cpp itself is compiled
+// into the simulation target and reaches these only through the installed loaders.
+auto texture_slots(AssetManager& self) -> SlotMap<Texture, TextureID>& {
+  if (!self.texture_storage) {
+    self.texture_storage = std::make_shared<SlotMap<Texture, TextureID>>();
+  }
+  return *static_cast<SlotMap<Texture, TextureID>*>(self.texture_storage.get());
+}
+
+auto AssetManager::load_texture(this AssetManager& self, const std::filesystem::path& path, TextureLoadInfo info)
+  -> TextureID {
+  ZoneScoped;
+
+  auto data_source = TextureDataSource{};
+  auto source_bytes = std::get_if<std::span<const u8>>(&info.source);
+  auto source_path = std::get_if<std::filesystem::path>(&info.source);
+  if (source_bytes || (source_path && !source_path->empty())) {
+    data_source = info.source;
+  } else {
+    data_source = path;
+  }
+
+  auto texture = Texture::create({
+    .source = data_source,
+    .level_count = info.level_count,
+    .is_srgb = info.is_srgb,
+    .target_width = info.target_width,
+    .target_height = info.target_height,
+    .sampler = info.sampler,
+  });
+  if (!texture) {
+    return TextureID::Invalid;
+  }
+
+  auto write_lock = std::unique_lock(self.textures_mutex);
+  return texture_slots(self).create_slot(std::move(texture));
+}
+
+auto AssetManager::unload_texture(this AssetManager& self, ReadGuard<Asset> asset) -> bool {
+  ZoneScoped;
+
+  auto read_lock = std::shared_lock(self.textures_mutex);
+  auto* texture = texture_slots(self).slot(asset->texture_id);
+  if (!texture) {
+    return false;
+  }
+
+  texture->destroy();
+
+  read_lock.unlock();
+  auto write_lock = std::unique_lock(self.textures_mutex);
+
+  texture_slots(self).destroy_slot(asset->texture_id);
+  asset->texture_id = TextureID::Invalid;
+
+  return true;
+}
+
+auto AssetManager::get_texture(this AssetManager& self, const UUID& uuid) -> ReadGuard<Texture> {
+  ZoneScoped;
+
+  TextureID texture_id;
+  {
+    auto guard = self.get_asset(uuid);
+    if (!guard || guard->type != AssetType::Texture || guard->texture_id == TextureID::Invalid)
+      return {};
+    texture_id = guard->texture_id;
+  }
+  return self.get_texture(texture_id);
+}
+
+auto AssetManager::get_texture(this AssetManager& self, const TextureID texture_id) -> ReadGuard<Texture> {
+  ZoneScoped;
+
+  if (texture_id == TextureID::Invalid)
+    return {};
+  self.textures_mutex.lock_shared();
+  auto* texture = texture_slots(self).slot(texture_id);
+  if (!texture) {
+    self.textures_mutex.unlock_shared();
+    return {};
+  }
+  return ReadGuard<Texture>(self.textures_mutex, texture, adopt_lock);
+}
+
+// The hook target behind AssetManager::get_texture_extent, which is defined simulation-side and
+// dispatches here. A texture's pixel size is asset metadata, but reading it needs a live Texture.
+auto texture_extent_of(AssetManager& self, const UUID& uuid) -> glm::uvec2 {
+  ZoneScoped;
+
+  const auto texture = self.get_texture(uuid);
+  if (!texture) {
+    return {};
+  }
+
+  const auto extent = texture->get_extent();
+  return glm::uvec2(extent.width, extent.height);
 }
 
 } // namespace ox

@@ -1,6 +1,7 @@
 #include "SceneManager.hpp"
 
 #include "Core/App.hpp"
+#include "Server/Server.hpp"
 
 namespace ox {
 EditorScene::~EditorScene() { stop(); }
@@ -63,6 +64,12 @@ auto EditorScene::stop(this EditorScene& self) -> void {
 auto SceneManager::reset(this SceneManager& self) -> void {
   ZoneScoped;
 
+  for (auto& scene : self.scenes.slots_unsafe()) {
+    if (scene) {
+      Server::get()->unregister_scene(scene->get_scene().get());
+    }
+  }
+
   self.scenes.reset();
 }
 
@@ -71,6 +78,11 @@ auto SceneManager::new_scene(this SceneManager& self) -> SceneID {
 
   auto scene_id = self.scenes.create_slot(std::make_shared<EditorScene>());
   self.scenes.slot(scene_id)->get()->id = scene_id;
+
+  // Registered with the simulation, not with a panel. A scene ticks because it exists, not
+  // because something happens to be drawing it.
+  Server::get()->register_scene(self.scenes.slot(scene_id)->get()->get_scene());
+
   return scene_id;
 }
 
@@ -83,6 +95,8 @@ auto SceneManager::new_play_scene(this SceneManager& self, SceneID from) -> Scen
   auto copy_scene_id = self.scenes.create_slot(std::make_shared<EditorScene>(copy_scene));
   self.scenes.slot(copy_scene_id)->get()->id = copy_scene_id;
 
+  Server::get()->register_scene(copy_scene);
+
   self.get_scene(copy_scene_id)->play();
 
   return copy_scene_id;
@@ -93,6 +107,8 @@ auto SceneManager::remove_scene(this SceneManager& self, SceneID id) -> void {
 
   auto scene = self.scenes.slot(id);
   if (scene != nullptr) {
+    // Fences against the simulation thread before the scene goes away.
+    Server::get()->unregister_scene((*scene)->get_scene().get());
     scene->reset();
   }
 
