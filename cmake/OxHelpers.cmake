@@ -196,6 +196,10 @@ function(_ox_configure_dependency_dir dir)
       continue()
     endif()
 
+    if(NOT _type STREQUAL "EXECUTABLE")
+      set_target_properties(${_target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
+
     if(MSVC)
       target_compile_options(${_target} PRIVATE /w $<$<CONFIG:Debug>:/O2>)
     else()

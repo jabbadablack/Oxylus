@@ -160,6 +160,15 @@ release builds unless they carried `debug = is_mode("debug")`. `ox_configure_dep
 walk skips `OxylusServer/`, `OxylusClient/`, `OxylusEditor/` and `ResourceCompiler/` by name — it
 runs after every subdirectory now, so it would otherwise silence our own warnings.
 
+The same walk forces `POSITION_INDEPENDENT_CODE ON` on every non-executable dependency target. The
+engine's own modules get it from `ox_configure_module`, but a third-party **static** library that
+does not set it builds non-PIC objects, and linking those into one of our shared libraries fails on
+Linux with `relocation R_X86_64_PC32 ... can not be used when making a shared object`. simdjson into
+`libOxylusServerRender.so` is the one that surfaced it; `SPIRV-Tools-opt` into `ResourceCompiler.so`
+and `vuk`/`SDL3-static`/`fastgltf`/`ktx` into the editor (PIE by default on Ubuntu) are the same
+trap. Windows never shows it — MSVC code is position-independent already, so the property is inert
+there and the whole class of failure is invisible until a Linux link.
+
 The same walk also marks every dependency target `SYSTEM` (so warnings inside their headers are not
 reported when our TUs include them) and compiles them with `/w` (or `-w`). Dependency warnings are
 not actionable here and drown out our own; without this a clean build emits well over a hundred
