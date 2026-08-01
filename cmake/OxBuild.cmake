@@ -29,9 +29,19 @@ set_property(CACHE OX_CXX_RUNTIME PROPERTY STRINGS
   default libcxx-shared libcxx-static libstdcxx-shared libstdcxx-static)
 
 if(MSVC)
-  if(NOT CMAKE_MSVC_RUNTIME_LIBRARY)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-  endif()
+  # The DLL runtime, not the static one. The engine ships as a set of shared libraries that hand
+  # std::string, std::vector and std::shared_ptr across their boundaries constantly; with the
+  # static CRT every DLL carries its own copy of the allocator, so memory allocated in one and
+  # freed in another lands in the wrong heap. The symptom is a debug assertion in debug_heap.cpp,
+  # "__acrt_first_block == header", from whichever module happened to do the free. One CRT, one heap.
+  #
+  # Forced, and set as a normal variable on top of the cache entry, because this is not a preference
+  # the build can afford to lose: Jolt writes CMAKE_MSVC_RUNTIME_LIBRARY into the cache with FORCE
+  # (see USE_STATIC_MSVC_RUNTIME_LIBRARY in Dependencies.cmake), and a value left in the cache by an
+  # earlier configure otherwise survives and silently outranks whatever is set here.
+  set(_ox_msvc_runtime "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "${_ox_msvc_runtime}" CACHE STRING "MSVC runtime library" FORCE)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "${_ox_msvc_runtime}")
 else()
   if(OX_CXX_RUNTIME MATCHES "^libcxx")
     add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
@@ -59,10 +69,17 @@ endif()
 if(MSVC)
   set(_ox_dist_cflags "/O2 /Ob3 /Oi /Gy /DNDEBUG")
   set(_ox_dist_ldflags "/INCREMENTAL:NO /OPT:REF /OPT:ICF")
-  string(REPLACE "/RTC1" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
-  string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
-  set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}" CACHE STRING "" FORCE)
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}" CACHE STRING "" FORCE)
+  # These are force-cached, so whatever they hold survives into the next configure. Strip the
+  # runtime-library flag as well as /RTC1: CMAKE_MSVC_RUNTIME_LIBRARY above is what picks the
+  # runtime, and a stale /MTd left in the cache from an earlier configure would quietly outrank it
+  # - which is exactly how you end up with one DLL on the static CRT and the rest on the dynamic
+  # one, each with its own heap.
+  foreach(_ox_flags IN ITEMS CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG)
+    string(REGEX REPLACE "[-/]M[TD]d?" "" ${_ox_flags} "${${_ox_flags}}")
+    string(REPLACE "/RTC1" "" ${_ox_flags} "${${_ox_flags}}")
+    string(STRIP "${${_ox_flags}}" ${_ox_flags})
+    set(${_ox_flags} "${${_ox_flags}}" CACHE STRING "" FORCE)
+  endforeach()
 elseif(APPLE)
   set(_ox_dist_cflags "-O3 -DNDEBUG -ffunction-sections -fdata-sections")
   set(_ox_dist_ldflags "-Wl,-dead_strip -Wl,-x")

@@ -25,19 +25,33 @@ include(OxBuild)
 include(OxHelpers)
 include(Dependencies)
 
-# The server half first: Oxylus links OxylusServerLib, so its alias has to exist by then.
+# The server half first: the client links OxylusServerLib, so its alias has to exist by then.
 add_subdirectory(OxylusServer)
 add_subdirectory(OxylusClient)
+
+# ResourceCompiler and the editor predate the split into modules and name their dependencies
+# directly rather than through ox_require_*(). The engine modules will have fetched most of these
+# already; asking again is free and keeps those two files independent of module ordering.
+ox_require_fmt()
+ox_require_tomlplusplus()
+ox_require_zpp_bits()
+ox_require_spirv_tools()
 add_subdirectory(ResourceCompiler)
 
 if(OX_EDITOR)
+  ox_require_imguizmo()
   add_subdirectory(OxylusEditor)
 endif()
 
 if(OX_TESTS)
   enable_testing()
+  ox_require_googletest()
   add_subdirectory(OxylusClient/tests)
 endif()
+
+# Has to run after every add_subdirectory above: modules fetch their own packages, so the last of
+# them is not configured until the engine subdirectories have all been processed.
+ox_configure_dependencies()
 
 if(CMAKE_EXPORT_COMPILE_COMMANDS)
   add_custom_target(ox_compile_commands ALL

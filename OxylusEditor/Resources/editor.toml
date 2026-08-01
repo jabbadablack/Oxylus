@@ -1,7 +1,7 @@
 version = 10
 
 [[shader_sessions]]
-root_directory = "../../OxylusClient/src/Render/Shaders"
+root_directory = "../../OxylusClient/Render/src/Shaders"
 session_name = "editor"
 debug_symbols = false
 optimization = "default"

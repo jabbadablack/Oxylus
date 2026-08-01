@@ -78,8 +78,10 @@ auto NotificationSystem::draw_single(Notification& notif) -> void {
       notif.title.c_str(),
       {},
       ImGuiChildFlags_Borders | ImGuiChildFlags_FrameStyle,
-      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
-        ImGuiWindowFlags_NoFocusOnAppearing
+      // Not ImGuiWindowFlags_AlwaysAutoResize: BeginChild rejects it outright, and the size here
+      // comes from notification_window_size below anyway. Auto-resizing a child is spelled
+      // ImGuiChildFlags_AutoResizeX/Y in the child_flags argument.
+      ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing
     )
   ) {
     ImSpinner::detail::SpinnerConfig config{};
