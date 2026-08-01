@@ -3,7 +3,7 @@
 <img src="https://raw.githubusercontent.com/oxylusengine/oxylus-resources/422431ce8be07d34caa8e4229ef05d49c4f7c046/LogoText.svg" height="200" />
 </p>
 
-[![CI](https://img.shields.io/github/actions/workflow/status/Hatrickek/OxylusEngine/xmake.yaml?&style=for-the-badge&logo=cmake&logoColor=orange&labelColor=black)](https://github.com/Hatrickek/OxylusEngine/actions/workflows/xmake.yaml)
+[![CI](https://img.shields.io/github/actions/workflow/status/Hatrickek/OxylusEngine/ci.yaml?&style=for-the-badge&logo=cmake&logoColor=orange&labelColor=black)](https://github.com/Hatrickek/OxylusEngine/actions/workflows/ci.yaml)
 [![Discord](https://img.shields.io/discord/1364938544736370820?style=for-the-badge&logo=discord&logoColor=orange&label=Discord&link=https%3A%2F%2Fdiscord.gg%2FcbQDJrWszk)](https://discord.gg/cbQDJrWszk)
 
 ## About   
@@ -50,20 +50,34 @@ Be aware that Oxylus is still in it's early stages of development. Some importan
 Windows, Linux and Mac (with MoltenVK) is supported.
 
 ### Requirements
-- [Xmake](https://xmake.io)
-- [Vulkan SDK](https://vulkan.lunarg.com/sdk/home).
-- A compiler that supports C++23.   
+- [CMake](https://cmake.org) 3.25 or newer
+- [Ninja](https://ninja-build.org)
+- [Vulkan SDK](https://vulkan.lunarg.com/sdk/home)
+- A compiler that supports C++23
+
+Third-party dependencies are fetched and built from source automatically by
+[CPM.cmake](https://github.com/cpm-cmake/CPM.cmake), so the first configure takes a while. Set the
+`CPM_SOURCE_CACHE` environment variable to a directory to share those sources between build trees.
+
 ### Steps
 - To configure the project run:
-  - `xmake f --toolchain=clang --runtimes=c++_static -m debug`
-	- Change `--toolchain=` for the toolchain you want to use. 
-      - ex: `clang-cl` for Windows, `nix-clang` for nixos, `mac-clang` for macOS. Check `xmake/toolchains.lua` for details. 
-	- Pick a mode `-m debug, release, dist`
-	- Optionals:
-      - `--lua_bindings` Compile lua bindings (`true` by default)
-      - `--profile` Enable tracy profiler (`false` by default)
-      - `--tests` Enable tests. (`false` by default)
+  - `cmake --preset clang-debug`
+    - Presets are `<toolchain>-<mode>`, where toolchain is one of `msvc`, `clang-cl`, `clang`,
+      `nix-clang`, `mac-clang` and mode is one of `debug`, `release`, `dist`.
+      Run `cmake --list-presets` to see them all.
+    - Optionals:
+      - `-DOX_LUA_BINDINGS=OFF` Skip the lua bindings (`ON` by default)
+      - `-DOX_EDITOR=OFF` Skip the editor project (`ON` by default)
+      - `-DOX_PROFILE=ON` Enable tracy profiler (`OFF` by default)
+      - `-DOX_TESTS=ON` Enable tests (`OFF` by default)
+      - `-DOX_LLVMPIPE=ON` Force LLVMPipe during Vulkan device creation (`OFF` by default)
 - To build the project run:
-	- `xmake build`
-- To run the editor with xmake run:
-  - `xmake r OxylusEditor`
+  - `cmake --build --preset clang-debug -j 8`
+- Binaries and resources are written to `build/<plat>/<arch>/<mode>/`. The editor resolves its
+  assets, logs and config next to the executable, so it can be launched from anywhere:
+  - `cmake --build --preset clang-debug --target run` (builds, then runs it)
+  - or `./build/linux/x86_64/debug/OxylusEditor`
+- To build and run the tests:
+  - `cmake --preset clang-debug -DOX_TESTS=ON`
+  - `cmake --build --preset clang-debug -j 8 --target ox-tests`
+  - `ctest --preset clang-debug --output-on-failure`

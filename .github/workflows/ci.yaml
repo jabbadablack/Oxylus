@@ -1,0 +1,105 @@
+name: Build
+permissions:
+  contents: write
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  VULKAN_VERSION: 1.4.309.0
+  LLVM_VERSION: 20
+  LLVM_WINDOWS_VERSION: 20.1.4
+  LLVM_MACOS_VERSION: 22
+  CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { runner: windows-2025,  os: windows, arch: x64,    preset: msvc-release,           mode: release }
+          - { runner: windows-2025,  os: windows, arch: x64,    preset: msvc-debug,             mode: debug   }
+          - { runner: ubuntu-latest, os: linux,   arch: x86_64, preset: clang-release,          mode: release }
+          - { runner: ubuntu-latest, os: linux,   arch: x86_64, preset: clang-debug,            mode: debug   }
+          - { runner: macos-26,      os: macos,   arch: arm64,  preset: mac-clang-release,      mode: release }
+          - { runner: macos-26,      os: macos,   arch: arm64,  preset: mac-clang-debug,        mode: debug   }
+
+    runs-on: ${{ matrix.platform.runner }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Linux dependencies
+        if: ${{ matrix.platform.os == 'linux' }}
+        run: |
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository -y "deb http://apt.llvm.org/noble/ llvm-toolchain-noble-${{ env.LLVM_VERSION }} main"
+          sudo add-apt-repository -y "deb-src http://apt.llvm.org/noble/ llvm-toolchain-noble-${{ env.LLVM_VERSION }} main"
+          sudo apt update -y
+          sudo apt install -y clang-${{ env.LLVM_VERSION }} lld-${{ env.LLVM_VERSION }} llvm-${{ env.LLVM_VERSION }} libllvm${{ env.LLVM_VERSION }} llvm-${{ env.LLVM_VERSION }}-runtime libclang-common-${{ env.LLVM_VERSION }}-dev libclang-${{ env.LLVM_VERSION }}-dev libclang1-${{ env.LLVM_VERSION }} libclang-rt-${{ env.LLVM_VERSION }}-dev libc++-${{ env.LLVM_VERSION }}-dev libc++abi-${{ env.LLVM_VERSION }}-dev libunwind-${{ env.LLVM_VERSION }}-dev libllvmlibc-${{ env.LLVM_VERSION }}-dev
+          sudo apt install -y ninja-build libx11-dev libxext-dev libxrandr-dev libxrender-dev libxfixes-dev libxi-dev libxinerama-dev libxkbcommon-dev
+          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-${{ env.LLVM_VERSION }} 100
+          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-${{ env.LLVM_VERSION }} 100
+
+      - name: Set up Python
+        if: ${{ matrix.platform.os == 'macos' }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
+      - name: Install macOS dependencies
+        if: ${{ matrix.platform.os == 'macos' }}
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          brew install ninja llvm@${{ env.LLVM_MACOS_VERSION }}
+          echo "LLVM_PATH=$(brew --prefix llvm@${{ env.LLVM_MACOS_VERSION }})" >> $GITHUB_ENV
+
+      - name: Install LLVM for Windows
+        if: ${{ matrix.platform.os == 'windows' }}
+        uses: KyleMayes/install-llvm-action@master
+        with:
+          version: "${{ env.LLVM_WINDOWS_VERSION }}"
+
+      - name: Set up MSVC environment
+        if: ${{ matrix.platform.os == 'windows' }}
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.platform.arch }}
+
+      - name: Install Ninja on Windows
+        if: ${{ matrix.platform.os == 'windows' }}
+        uses: seanmiddleditch/gha-setup-ninja@master
+
+      - name: Install Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          vulkan_version: ${{ env.VULKAN_VERSION }}
+          install_runtime: true
+          cache: true
+          stripdown: true
+
+      - name: Restore CPM source cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CPM_SOURCE_CACHE }}
+          key: cpm-${{ matrix.platform.os }}-${{ matrix.platform.arch }}-${{ hashFiles('cmake/Dependencies.cmake') }}
+          restore-keys: |
+            cpm-${{ matrix.platform.os }}-${{ matrix.platform.arch }}-
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.platform.preset }} -DOX_MARCH_NATIVE=OFF
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.platform.preset }} -j 4
+
+      - name: Archive production artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform.os }}-${{ matrix.platform.arch }}-${{ matrix.platform.mode }}
+          path: |
+            build/${{ matrix.platform.os == 'macos' && 'macosx' || matrix.platform.os }}/${{ matrix.platform.arch }}/${{ matrix.platform.mode }}

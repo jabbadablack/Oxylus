@@ -20,47 +20,104 @@ instruction about commit formatting or attribution.
 
 ## Build system
 
-Xmake (not CMake). Requires a C++23 compiler and the Vulkan SDK. Packages come from a custom
-repo declared in the root `xmake.lua` (`oxylus https://github.com/oxylusengine/xmake-repo.git`);
-`package.precompiled` is disabled, so first configure builds dependencies from source and is slow.
+CMake (not xmake) with Ninja, driven by `CMakePresets.json`. Requires CMake 3.25+, a C++23 compiler
+and the Vulkan SDK. Dependencies are fetched and built from source by CPM.cmake
+(`cmake/Dependencies.cmake`), so the first configure is slow — set `CPM_SOURCE_CACHE` to share
+sources between build trees.
 
 ```bash
-# Configure (pick toolchain from xmake/toolchains.lua: clang, clang-cl, nix-clang, mac-clang, ...)
-xmake f --toolchain=nix-clang --runtimes=c++_static -m debug
+# Configure — presets are <toolchain>-<mode>; run `cmake --list-presets` for the full set
+cmake --preset nix-clang-debug
 
 # Build — ALWAYS cap parallelism at 8; unbounded -j has crashed this machine
-xmake b -j 8
-xmake b -j 8 Oxylus          # single target
-xmake b -j 8 -a              # all targets, including non-default ones (tests)
+cmake --build --preset nix-clang-debug -j 8
+cmake --build --preset nix-clang-debug -j 8 --target Oxylus    # single target
+cmake --build --preset nix-clang-debug -j 8 --target ox-tests  # tests are EXCLUDE_FROM_ALL
 
-xmake r OxylusEditor         # run the editor
+cmake --build --preset nix-clang-debug --target run    # runs the editor from the artifact dir
+cd build/linux/x86_64/debug && ./OxylusEditor           # equivalent; assets resolve relative to CWD
 ```
 
-On NixOS, use `nix-shell` (see `shell.nix`) and `--toolchain=nix-clang`; the shell pins libc++,
-Vulkan loader, and `shader-slang`.
+`App`'s constructor chdirs to the executable's directory (`SDL_GetBasePath`) before `Log::init`, so
+`assets_path` ("Resources"), `logs/` and the `*_config.toml` files all resolve next to the binary no
+matter where the process was launched from. `with_working_directory()` still overrides it in
+`App::init`. The `run` target is the convenience replacement for `xmake r OxylusEditor`.
 
-Configure options (`xmake f --<opt>=<val>`): `lua_bindings` (default true), `editor` (default true),
-`tests` (default false), `profile` (Tracy, default false), `llvmpipe` (force software Vulkan device).
+Toolchains are `msvc`, `clang-cl`, `clang`, `nix-clang`, `mac-clang`; modes are `debug`, `release`,
+`dist`. On NixOS, use `nix-shell` (see `shell.nix`) and the `nix-clang-*` presets; the shell pins
+libc++, the Vulkan loader, and mold.
 
-Build modes are `debug`, `release`, `dist`. Each defines `OX_DEBUG` / `OX_RELEASE` / `OX_DISTRIBUTION`.
+Configure options (`-D<opt>=<val>`): `OX_LUA_BINDINGS` (default ON), `OX_EDITOR` (default ON),
+`OX_TESTS` (default OFF), `OX_PROFILE` (Tracy, default OFF), `OX_LLVMPIPE` (force software Vulkan
+device), `OX_MARCH_NATIVE` (default ON; turn OFF for portable/CI binaries, which then use
+`-march=x86-64-v3`).
+
+Each mode defines `OX_DEBUG` / `OX_RELEASE` / `OX_DISTRIBUTION`. `Dist` is a custom build type
+registered in `cmake/OxBuildTypes.cmake` — it is not one of CMake's built-ins.
 Output lands in `build/<plat>/<arch>/<mode>/`, with resources and compiled shader packs copied next to
-the binary. `compile_commands.json` is auto-regenerated into `build/` for clangd.
+the binary; CMake's own scratch dirs live under `build/.cmake/<preset>/`.
+`compile_commands.json` is auto-copied into `build/` for clangd.
+
+The build lives in four files and deliberately stays that way — resist splitting it up again:
+
+- `CMakeLists.txt` — registers the `Dist` build type (this has to happen before `project()`), then
+  includes the three modules and adds the subdirectories.
+- `cmake/OxBuild.cmake` — everything executed once to set up a configuration: compiler detection
+  (`OX_COMPILER`), the `OX_*` options, C++ runtime selection, `Dist` flags, the
+  `build/<plat>/<arch>/<mode>` layout plus the toolchain stamp, and the `ox_project_options`
+  interface target carrying warnings.
+- `cmake/OxHelpers.cmake` — the reusable functions: `ox_compile_shaders`, `ox_install_resources`,
+  `ox_stage_runtime_deps`/`ox_set_rpath`, and `ox_make_dependencies_release_like`.
+- `cmake/Dependencies.cmake` — the CPM bootstrap, every `CPMAddPackage`, the hand-written targets
+  for libraries that ship no CMake (`ox_imgui`, `ox_imguizmo`, `ox_lua`, `ox_sol2`, `ox_loguru`,
+  `ox_stb`, `ox_miniaudio`, `ox_zpp_bits`), and the prebuilt shader-slang import.
+
+Targets link upstream names directly (`fmt::fmt`, `Jolt::Jolt`, `RmlUi::RmlUi`, `vuk`, …); there is
+no indirection layer. If a dependency bump renames a target, CMake fails at generate time with the
+missing name, and `Dependencies.cmake` is where you fix it.
+
+**Dependencies are built release-like even in Debug**, matching xmake, where packages defaulted to
+release builds unless they carried `debug = is_mode("debug")`. `ox_make_dependencies_release_like()`
+(`cmake/OxHelpers.cmake`) walks every dependency target and adds `/O2` (or `-O2`) plus a private
+`NDEBUG` in Debug configurations, while the engine itself keeps `OX_DEBUG` and no optimisation.
+
+The same walk also marks every dependency target `SYSTEM` (so warnings inside their headers are not
+reported when our TUs include them) and compiles them with `/w` (or `-w`). Dependency warnings are
+not actionable here and drown out our own; without this a clean build emits well over a hundred
+thousand diagnostic lines.
+
+Two warning-flag traps worth remembering. **Use `if(MSVC)` — not `OX_COMPILER STREQUAL "msvc"` — to
+pick the base warning level**, because in clang-cl driver mode `-Wall` is an alias for `/Wall`, which
+clang maps to `-Weverything`; that buries the build in `-Wc++98-compat` noise for a C++23 codebase.
+And **do not repeat a `-Wno-*` flag on an individual target** when `ox_project_options` already
+carries it: the target's own options are emitted *before* the interface options, CMake de-duplicates
+the later copy, and the `/W4` in between re-enables the warning.
+
+`NDEBUG` is private, so a dependency whose *public headers* branch on it will disagree with its
+consumers. Jolt is the one that does: `Jolt/Core/Core.h` derives `JPH_DEBUG` (and from it
+`JPH_ENABLE_ASSERTS`) from `NDEBUG`, so a private define would drop `JPH::AssertFailed` from the
+library while consumers still reference it. The fix is Jolt's own opt-out, applied **PUBLIC** in
+`Dependencies.cmake` so both sides agree: `JPH_NO_DEBUG`. A link error naming a debug-only symbol is
+the signature of another dependency needing the same treatment — look for a `JPH_NO_DEBUG`-style
+switch in its headers rather than reaching for a per-target exception.
 
 ## Tests
 
 Tests are GoogleTest binaries under `Oxylus/tests/**/Test*.cpp`. Each file becomes its own target
-(named after the file) via the loop in `Oxylus/tests/xmake.lua`, and all are `set_default(false)`.
-ASan/UBSan (plus LSan on Linux) are forced on for test targets, so tests are slow.
+(named after the file) via the loop in `Oxylus/tests/CMakeLists.txt`, and all are `EXCLUDE_FROM_ALL`.
+ASan/UBSan are forced on for test targets, so tests are slow. On Linux the leak detector is enabled
+through `ASAN_OPTIONS=detect_leaks=1` rather than a compile flag, because clang rejects
+`-fsanitize=leak` alongside `-fsanitize=address`.
 
 ```bash
-xmake f --tests=y           # must be enabled at configure time
-xmake b -j 8 -a             # tests are non-default targets
-xmake test                  # all tests
-xmake test TestScene/*      # one target's tests (test name is "default")
+cmake --preset clang-debug -DOX_TESTS=ON       # must be enabled at configure time
+cmake --build --preset clang-debug -j 8 --target ox-tests
+ctest --preset clang-debug --output-on-failure # all tests
+ctest --preset clang-debug -R TestScene        # one target
 ./build/linux/x86_64/debug/TestScene --gtest_filter=Foo.Bar   # run the binary directly
 ```
 
-Adding a test = dropping a new `Test*.cpp` under `Oxylus/tests/`; no xmake edit needed.
+Adding a test = dropping a new `Test*.cpp` under `Oxylus/tests/`; no CMake edit needed.
 
 ## Targets
 
@@ -69,8 +126,9 @@ Adding a test = dropping a new `Test*.cpp` under `Oxylus/tests/`; no xmake edit 
   `src/OS/Linux*`, `src/OS/MacOS*` are removed for non-matching platforms.
 - **ResourceCompiler** (`ResourceCompiler/`) — shared library wrapping slang; compiles `.slang`
   shaders into `.oxpack` archives.
-- **rcli** — CLI front end for ResourceCompiler, invoked at build time by the `ox.compile_shaders`
-  rule. It sets `build.fence` so dependents never compile before it exists.
+- **rcli** — CLI front end for ResourceCompiler, invoked at build time by `ox_compile_shaders()`
+  (`cmake/OxCompileShaders.cmake`). The custom command `DEPENDS rcli`, so it is always fully linked
+  — and its slang runtime staged beside it — before any shader pack is compiled.
 - **OxylusEditor** (`OxylusEditor/`) — ImGui editor executable; `App` + `DefaultModules` + `Editor`.
 
 ## Architecture
@@ -144,10 +202,11 @@ shared resources and pipelines); `RendererInstance` is per-scene and builds the 
 Shaders are Slang (`Oxylus/src/Render/Shaders/`, editor-only ones under `Shaders/editor/`). They are
 **not** compiled by name discovery: every shader program must be declared in a TOML manifest —
 `OxylusEditor/Resources/engine.toml` and `editor.toml` — listing `name`, `path`, `entry_points`, and
-`bindless`. The `ox.compile_shaders` xmake rule (`xmake/rules.lua`) feeds each TOML to `rcli`, which
+`bindless`. `ox_compile_shaders()` (`cmake/OxCompileShaders.cmake`) feeds each TOML to `rcli`, which
 produces `engine.oxpack` / `editor.oxpack` next to the binary. At runtime `Renderer::init` unpacks
 `engine.oxpack` and calls `RenderContext::create_pipeline` for each entry. **Adding a shader means
-editing the TOML**, and the rule parses the TOML to register `.slang` files as build dependencies.
+editing the TOML**; every `.slang` file under `Oxylus/src/Render/Shaders/` is a build dependency of
+both packs, so editing an imported module rebuilds them too.
 
 `RendererInstance.hpp` defines the frame structure: a fixed `RenderStage` enum (Initialization,
 Culling, VisBufferEncode/Decode, Forward2D, Lighting, PostProcessing, Atmosphere, Debug, FinalOutput)
@@ -364,7 +423,8 @@ preference:
 
 ## CI
 
-`.github/workflows/xmake.yaml` builds Windows/msvc, Linux/clang-20, and macOS/mac-clang in both debug
-and release with `--tests=false`, then `xmake build -a` and `xmake install`. It does **not** run
-tests, so verify tests locally.
+`.github/workflows/ci.yaml` builds Windows/msvc, Linux/clang-20, and macOS/mac-clang in both debug
+and release with `OX_TESTS=OFF` and `OX_MARCH_NATIVE=OFF`, using `cmake --preset` and
+`cmake --build --preset`. CPM sources are cached on a hash of `cmake/Dependencies.cmake`. It does
+**not** run tests, so verify tests locally.
 

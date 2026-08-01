@@ -1,5 +1,6 @@
 #include "Core/App.hpp"
 
+#include <SDL3/SDL_filesystem.h>
 #include <vuk/vsl/Core.hpp>
 
 #include "Core/EventSystem.hpp"
@@ -24,6 +25,9 @@ App::App(int argc, char** argv) {
   }
 
   instance_ = this;
+
+  if (const auto* base_path = SDL_GetBasePath())
+    std::filesystem::current_path(base_path);
 
   Log::init(argc, argv);
 

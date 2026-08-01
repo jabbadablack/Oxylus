@@ -17,7 +17,6 @@ in pkgs.mkShell.override {
   stdenv = pkgs.llvmPackages_latest.libcxxStdenv;
 } {
   nativeBuildInputs = [
-    pkgs.xmake
     pkgs.cmake
     pkgs.ninja
     pkgs.pkg-config

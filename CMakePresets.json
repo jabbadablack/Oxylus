@@ -1,0 +1,197 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/.cmake/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "OX_LUA_BINDINGS": "ON",
+        "OX_EDITOR": "ON",
+        "OX_TESTS": "OFF",
+        "OX_PROFILE": "OFF",
+        "OX_LLVMPIPE": "OFF",
+        "OX_MARCH_NATIVE": "ON",
+        "CPM_USE_NAMED_CACHE_DIRECTORIES": "ON"
+      }
+    },
+    {
+      "name": "mode-debug",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "mode-release",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "mode-dist",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Dist"
+      }
+    },
+    {
+      "name": "tc-msvc",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
+        "OX_CXX_RUNTIME": "default"
+      }
+    },
+    {
+      "name": "tc-clang-cl",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
+        "OX_CXX_RUNTIME": "default"
+      }
+    },
+    {
+      "name": "tc-clang",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "OX_CXX_RUNTIME": "libcxx-static"
+      }
+    },
+    {
+      "name": "tc-nix-clang",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_AR": "llvm-ar",
+        "CMAKE_RANLIB": "llvm-ranlib",
+        "CMAKE_STRIP": "llvm-strip",
+        "CMAKE_OBJCOPY": "llvm-objcopy",
+        "CMAKE_LINKER_TYPE": "MOLD",
+        "OX_CXX_RUNTIME": "libcxx-static",
+        "OX_FORCE_M64": "ON",
+        "OX_MARCH_NATIVE": "OFF"
+      }
+    },
+    {
+      "name": "tc-mac-clang",
+      "hidden": true,
+      "inherits": "base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "environment": {
+        "LLVM_PATH": "/opt/homebrew/opt/llvm@22"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "$env{LLVM_PATH}/bin/clang",
+        "CMAKE_CXX_COMPILER": "$env{LLVM_PATH}/bin/clang++",
+        "CMAKE_AR": "$env{LLVM_PATH}/bin/llvm-ar",
+        "CMAKE_RANLIB": "$env{LLVM_PATH}/bin/llvm-ranlib",
+        "CMAKE_EXE_LINKER_FLAGS": "-L$env{LLVM_PATH}/lib/c++ -Wl,-rpath,$env{LLVM_PATH}/lib/c++",
+        "CMAKE_SHARED_LINKER_FLAGS": "-L$env{LLVM_PATH}/lib/c++ -Wl,-rpath,$env{LLVM_PATH}/lib/c++",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "OX_CXX_RUNTIME": "libcxx-static"
+      }
+    },
+    { "name": "msvc-debug", "displayName": "MSVC / Debug", "inherits": ["tc-msvc", "mode-debug"] },
+    { "name": "msvc-release", "displayName": "MSVC / Release", "inherits": ["tc-msvc", "mode-release"] },
+    { "name": "msvc-dist", "displayName": "MSVC / Dist", "inherits": ["tc-msvc", "mode-dist"] },
+
+    { "name": "clang-cl-debug", "displayName": "clang-cl / Debug", "inherits": ["tc-clang-cl", "mode-debug"] },
+    { "name": "clang-cl-release", "displayName": "clang-cl / Release", "inherits": ["tc-clang-cl", "mode-release"] },
+    { "name": "clang-cl-dist", "displayName": "clang-cl / Dist", "inherits": ["tc-clang-cl", "mode-dist"] },
+
+    { "name": "clang-debug", "displayName": "clang / Debug", "inherits": ["tc-clang", "mode-debug"] },
+    { "name": "clang-release", "displayName": "clang / Release", "inherits": ["tc-clang", "mode-release"] },
+    { "name": "clang-dist", "displayName": "clang / Dist", "inherits": ["tc-clang", "mode-dist"] },
+
+    { "name": "nix-clang-debug", "displayName": "nix-clang / Debug", "inherits": ["tc-nix-clang", "mode-debug"] },
+    { "name": "nix-clang-release", "displayName": "nix-clang / Release", "inherits": ["tc-nix-clang", "mode-release"] },
+    { "name": "nix-clang-dist", "displayName": "nix-clang / Dist", "inherits": ["tc-nix-clang", "mode-dist"] },
+
+    { "name": "mac-clang-debug", "displayName": "mac-clang / Debug", "inherits": ["tc-mac-clang", "mode-debug"] },
+    { "name": "mac-clang-release", "displayName": "mac-clang / Release", "inherits": ["tc-mac-clang", "mode-release"] },
+    { "name": "mac-clang-dist", "displayName": "mac-clang / Dist", "inherits": ["tc-mac-clang", "mode-dist"] }
+  ],
+  "buildPresets": [
+    { "name": "msvc-debug", "configurePreset": "msvc-debug", "jobs": 8 },
+    { "name": "msvc-release", "configurePreset": "msvc-release", "jobs": 8 },
+    { "name": "msvc-dist", "configurePreset": "msvc-dist", "jobs": 8 },
+    { "name": "msvc-debug-tests", "configurePreset": "msvc-debug", "jobs": 8, "targets": ["ox-tests"] },
+
+    { "name": "clang-cl-debug", "configurePreset": "clang-cl-debug", "jobs": 8 },
+    { "name": "clang-cl-release", "configurePreset": "clang-cl-release", "jobs": 8 },
+    { "name": "clang-cl-dist", "configurePreset": "clang-cl-dist", "jobs": 8 },
+    { "name": "clang-cl-debug-tests", "configurePreset": "clang-cl-debug", "jobs": 8, "targets": ["ox-tests"] },
+
+    { "name": "clang-debug", "configurePreset": "clang-debug", "jobs": 8 },
+    { "name": "clang-release", "configurePreset": "clang-release", "jobs": 8 },
+    { "name": "clang-dist", "configurePreset": "clang-dist", "jobs": 8 },
+    { "name": "clang-debug-tests", "configurePreset": "clang-debug", "jobs": 8, "targets": ["ox-tests"] },
+
+    { "name": "nix-clang-debug", "configurePreset": "nix-clang-debug", "jobs": 8 },
+    { "name": "nix-clang-release", "configurePreset": "nix-clang-release", "jobs": 8 },
+    { "name": "nix-clang-dist", "configurePreset": "nix-clang-dist", "jobs": 8 },
+    { "name": "nix-clang-debug-tests", "configurePreset": "nix-clang-debug", "jobs": 8, "targets": ["ox-tests"] },
+
+    { "name": "mac-clang-debug", "configurePreset": "mac-clang-debug", "jobs": 8 },
+    { "name": "mac-clang-release", "configurePreset": "mac-clang-release", "jobs": 8 },
+    { "name": "mac-clang-dist", "configurePreset": "mac-clang-dist", "jobs": 8 },
+    { "name": "mac-clang-debug-tests", "configurePreset": "mac-clang-debug", "jobs": 8, "targets": ["ox-tests"] }
+  ],
+  "testPresets": [
+    {
+      "name": "test-base",
+      "hidden": true,
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false, "jobs": 1 }
+    },
+    { "name": "msvc-debug", "inherits": "test-base", "configurePreset": "msvc-debug" },
+    { "name": "clang-cl-debug", "inherits": "test-base", "configurePreset": "clang-cl-debug" },
+    { "name": "clang-debug", "inherits": "test-base", "configurePreset": "clang-debug" },
+    { "name": "nix-clang-debug", "inherits": "test-base", "configurePreset": "nix-clang-debug" },
+    { "name": "mac-clang-debug", "inherits": "test-base", "configurePreset": "mac-clang-debug" }
+  ]
+}
