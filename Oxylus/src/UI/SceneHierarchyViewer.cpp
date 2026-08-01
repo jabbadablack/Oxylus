@@ -5,6 +5,7 @@
 
 #include "Asset/AssetManager.hpp"
 #include "Core/App.hpp"
+#include "Server/ServerCommand.hpp"
 #include "UI/AssetManagerViewer.hpp"
 #include "UI/UI.hpp"
 #include "Utils/ImGuiScoped.hpp"
@@ -227,7 +228,14 @@ auto SceneHierarchyViewer::render(const char* id, bool* visible) -> void {
       }
 
       if (dragged_entity_ != flecs::entity::null() && dragged_entity_target_ != flecs::entity::null()) {
-        dragged_entity_.child_of(dragged_entity_target_);
+        App::send_command(
+          ServerCommand{
+            .payload = CmdReparentEntity{
+              .entity = static_cast<EntityHandle>(dragged_entity_.id()),
+              .parent = static_cast<EntityHandle>(dragged_entity_target_.id()),
+            }
+          }
+        );
         dragged_entity_ = flecs::entity::null();
         dragged_entity_target_ = flecs::entity::null();
       }
@@ -311,16 +319,9 @@ auto SceneHierarchyViewer::draw_entity_node(
     if (ImGui::MenuItem("Rename", "F2"))
       renaming_entity_ = entity;
     if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
-      auto clone_entity = [](flecs::entity e) -> flecs::entity {
-        std::string clone_name = e.name().c_str();
-        while (e.world().lookup(clone_name.data())) {
-          clone_name = fmt::format("{}_clone", clone_name);
-        }
-        auto cloned_entity = e.clone(true);
-        return cloned_entity.set_name(clone_name.data());
-      };
-
-      selected_entity_.set(clone_entity(entity));
+      // The server clones and picks the free name; the result arrives by replication. The
+      // selection is not moved here because the new entity does not exist yet on this side.
+      App::send_command(ServerCommand{.payload = CmdCloneEntity{.entity = static_cast<EntityHandle>(entity.id())}});
       selected_script_ = nullptr;
     }
     if (ImGui::MenuItem("Delete", "Del"))
@@ -370,7 +371,14 @@ auto SceneHierarchyViewer::draw_entity_node(
 
     std::string name{entity.name()};
     if (ImGui::InputText("##Tag", &name)) {
-      entity.set_name(name.c_str());
+      App::send_command(
+        ServerCommand{
+          .payload = CmdRenameEntity{
+            .entity = static_cast<EntityHandle>(entity.id()),
+            .name = name,
+          }
+        }
+      );
     }
 
     if (ImGui::IsItemDeactivated()) {
@@ -401,7 +409,14 @@ auto SceneHierarchyViewer::draw_entity_node(
     ImGui::Text("  %s", entity.enabled() ? visibility_icon_on : visibility_icon_off);
 
     if (ImGui::IsItemHovered() && (ImGui::IsMouseDragging(0) || ImGui::IsItemClicked())) {
-      entity.enabled() ? entity.disable() : entity.enable();
+      App::send_command(
+        ServerCommand{
+          .payload = CmdSetEntityEnabled{
+            .entity = static_cast<EntityHandle>(entity.id()),
+            .enabled = !entity.enabled(),
+          }
+        }
+      );
     }
   }
 
@@ -467,27 +482,26 @@ auto SceneHierarchyViewer::draw_entities_context_menu() -> void {
   ImGuiScoped::StyleVar styleVar1(ImGuiStyleVar_ItemInnerSpacing, {0, 5});
   ImGuiScoped::StyleVar styleVar2(ImGuiStyleVar_ItemSpacing, {1, 5});
   if (ImGui::BeginMenu("Create")) {
+    // Every one of these is a request now. The entity appears when the server replicates it
+    // back, so none of them can select the result immediately.
     if (ImGui::MenuItem("New Entity")) {
-      to_select = scene_->create_entity("entity", true);
+      App::send_command(ServerCommand{.payload = CmdCreateEntity{.name = "entity", .archetype = "entity"}});
     }
 
     if (ImGui::MenuItem("Sprite")) {
-      to_select = scene_->create_entity("sprite", true).add<SpriteComponent>();
+      App::send_command(ServerCommand{.payload = CmdCreateEntity{.name = "sprite", .archetype = "sprite"}});
     }
 
     if (ImGui::MenuItem("Camera")) {
-      to_select = scene_->create_entity("camera", true);
-      to_select.add<CameraComponent>().get_mut<TransformComponent>().rotation.y = glm::radians(-90.f);
+      App::send_command(ServerCommand{.payload = CmdCreateEntity{.name = "camera", .archetype = "camera"}});
     }
 
     if (ImGui::BeginMenu("Light")) {
       if (ImGui::MenuItem("Light")) {
-        to_select = scene_->create_entity("light", true).add<LightComponent>();
+        App::send_command(ServerCommand{.payload = CmdCreateEntity{.name = "light", .archetype = "light"}});
       }
       if (ImGui::MenuItem("Sun")) {
-        to_select = scene_->create_entity("sun", true)
-                      .set<LightComponent>(LightComponent{.type = LightComponent::Directional, .intensity = 10.f})
-                      .add<AtmosphereComponent>();
+        App::send_command(ServerCommand{.payload = CmdCreateEntity{.name = "sun", .archetype = "sun"}});
       }
       ImGui::EndMenu();
     }

@@ -35,6 +35,7 @@ int main(int argc, char** argv) {
         .flags = ox::WindowFlag::Centered | ox::WindowFlag::Resizable | ox::WindowFlag::HighPixelDensity,
       }
     )
+    .with_server()
     .with(ox::DefaultModules{})
     .with<ox::Editor>()
     .run();

@@ -9,6 +9,7 @@
 #include "Core/Enum.hpp"
 #include "Core/Input.hpp"
 #include "Core/JobManager.hpp"
+#include "Networking/NetClient.hpp"
 #include "Networking/NetworkManager.hpp"
 #include "Panels/AssetManagerPanel.hpp"
 #include "Panels/ContentPanel.hpp"
@@ -18,7 +19,9 @@
 #include "Panels/SceneHierarchyPanel.hpp"
 #include "Panels/TextEditorPanel.hpp"
 #include "Render/Window.hpp"
+#include "Scene/SceneSnapshot.hpp"
 #include "Server/Server.hpp"
+#include "Server/ServerCommand.hpp"
 #include "UI/ImGuiRenderer.hpp"
 #include "UI/RmlUI.hpp"
 #include "UI/UI.hpp"
@@ -151,6 +154,37 @@ auto Editor::init(this Editor& self) -> std::expected<void, std::string> {
     loguru::Verbosity_INFO
   );
 
+  // Everything the panels read arrives here. The editor is a client: it never ticks a world, it
+  // applies the state the server sends and draws the result.
+  self.scene_snapshot_handler =
+    App::get_event_system()
+      .subscribe<ClientSceneSnapshotEvent>([&self](const ClientSceneSnapshotEvent& event) {
+        const auto key = static_cast<u64>(event.scene_id);
+
+        // Validated, not trusted: the mapped scene can have been closed
+        // or reset since, and a stale id looked up with an asserting
+        // accessor aborts the editor.
+        auto it = self.replica_scenes.find(key);
+        if (it != self.replica_scenes.end() && !self.scene_manager.try_get_scene(it->second)) {
+          self.replica_scenes.erase(it);
+          it = self.replica_scenes.end();
+        }
+
+        if (it == self.replica_scenes.end()) {
+          // First state for this scene: make a local replica and open a viewport on it.
+          const auto local_id = self.scene_manager.new_scene();
+          it = self.replica_scenes.emplace(key, local_id).first;
+          self.main_viewport_panel.add_new_scene(self.scene_manager.get_scene(local_id));
+          OX_LOG_INFO("Mirroring server scene {}.", key);
+        }
+
+        auto editor_scene = self.scene_manager.try_get_scene(it->second);
+        if (editor_scene && editor_scene->get_scene()) {
+          apply_scene_state(editor_scene->get_scene()->world, event.scene_state);
+        }
+      })
+      .value_or(0);
+
   self.thumbnail_manager.init();
 
   return {};
@@ -166,6 +200,7 @@ auto Editor::deinit(this Editor& self) -> std::expected<void, std::string> {
   auto& event_system = App::get_event_system();
   std::ignore = event_system.unsubscribe<ScenePlayEvent>(self.scene_play_handler);
   std::ignore = event_system.unsubscribe<SceneStopEvent>(self.scene_stop_handler);
+  std::ignore = event_system.unsubscribe<ClientSceneSnapshotEvent>(self.scene_snapshot_handler);
 
   self.main_viewport_panel.deinit();
   self.main_viewport_panel.reset();
@@ -299,19 +334,23 @@ void Editor::reset(this Editor& self) {
   auto& sh = self.editor_panel_registry.get<SceneHierarchyPanel>();
   sh.set_scene(nullptr);
 
+  // Before the scenes go: these map the server's scene ids onto local ones, and every id in here
+  // is about to become invalid. Leaving them would make the next replicated snapshot look up a
+  // destroyed scene, which is a null check away from aborting.
+  self.replica_scenes.clear();
+
   self.scene_manager.reset();
 }
 
 void Editor::new_scene(this Editor& self) {
   ZoneScoped;
 
-  App::get_rendercontext().wait();
-
-  auto new_scene_id = self.scene_manager.new_scene();
-  self.scene_manager.load_default_scene(new_scene_id);
-  auto scene = self.scene_manager.get_scene(new_scene_id);
-
-  self.main_viewport_panel.add_new_scene(scene);
+  // Creating a scene is not a command yet - only entity-level edits are - so there is no way to ask
+  // the server for one. Building it locally would produce exactly the orphan this refactor removed:
+  // a world the server has never heard of, that no snapshot maintains and that crashes when
+  // selected. Refuse loudly instead of failing quietly.
+  OX_LOG_WARN("Creating scenes from the editor is not wired to the server yet; ignoring the request.");
+  static_cast<void>(self);
 }
 
 bool Editor::open_scene(const std::filesystem::path& path) {
@@ -370,12 +409,9 @@ void Editor::save_scene() {
 
   if (!scene->get_path().empty()) {
     auto& job_man = App::get_job_manager();
-    job_man.push_job_name("Saving scene");
-    job_man.submit(Job::create([scene] {
-      auto last_saved_path = scene->get_path();
-      scene->get_scene()->save_to_file(last_saved_path);
-    }));
-    job_man.pop_job_name();
+    // Was a job walking the world while the tick mutated it. Now the server serialises, on
+    // the thread that owns the world, and the race is gone with the local write.
+    App::send_command(ServerCommand{.payload = CmdSaveScene{.path = scene->get_path().string()}});
   } else {
     save_scene_as();
   }
@@ -418,13 +454,8 @@ void Editor::save_scene_as() {
         const auto path = std::string(first_path_cstr, first_path_len);
 
         if (!path.empty()) {
-          auto& job_man = App::get_job_manager();
-          job_man.push_job_name("Saving scene");
-          job_man.submit(Job::create([s = udata->scene, path] {
-            s->get_scene()->save_to_file(path);
-            s->set_path(path);
-          }));
-          job_man.pop_job_name();
+          App::send_command(ServerCommand{.payload = CmdSaveScene{.path = path}});
+          udata->scene->set_path(path);
         }
 
         delete udata;

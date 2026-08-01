@@ -13,6 +13,8 @@
 namespace ox {
 class ImGuiLayer;
 class RenderContext;
+struct NetClient;
+struct ServerCommand;
 
 struct WindowResizeEvent {
   u32 width = 0;
@@ -109,6 +111,28 @@ public:
   static auto get_job_manager() -> JobManager&;
   static auto get_event_system() -> EventSystem&;
 
+  // The editor is a client. The authoritative world lives in an OxylusServer process that App
+  // spawns and connects to over loopback; everything the panels read is a replica fed by
+  // ClientSceneSnapshotEvent. There is deliberately no in-process fallback - if the server cannot
+  // be started or reached, that is a hard failure, so there is exactly one code path to maintain.
+  // Opt in to the server. An App only spawns and connects to an OxylusServer process when it
+  // actually needs a simulated world - the editor does, a headless test that just wants the module
+  // registry does not, and having every App start a game server makes them collide on the port.
+  auto with_server(this App& self, u16 port = 7777) -> App&;
+
+private:
+  auto spawn_server(this App& self) -> bool;
+  auto connect_to_server(this App& self) -> std::expected<void, std::string>;
+  auto disconnect_from_server(this App& self) -> void;
+
+  auto is_connected_to_server(this const App& self) -> bool;
+
+public:
+  // Sends an edit to the server. The single way client code changes the world - there is no local
+  // path any more, so a dropped connection means edits visibly stop rather than silently diverge.
+  static auto send_command(const ServerCommand& command) -> void;
+
+private:
 private:
   static App* instance_;
 
@@ -130,6 +154,13 @@ private:
   EventSystem event_system = {};
   ModuleRegistry registry = {};
   std::unique_ptr<Server> sim_host = nullptr;
+
+  // Owned by NetworkManager, not by App - App only holds the handle it connects with.
+  NetClient* server_client = nullptr;
+  // SDL_Process*, kept opaque so this header does not pull SDL in.
+  void* server_process = nullptr;
+  u16 server_port = 7777;
+  bool wants_server = false;
 
   Timestep timestep = {};
   i32 frame_limit = 0;

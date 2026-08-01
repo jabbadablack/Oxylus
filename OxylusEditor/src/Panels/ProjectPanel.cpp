@@ -198,9 +198,11 @@ void ProjectPanel::on_render(this ProjectPanel& self, vuk::ImageAttachment swapc
         ImGui::SetCursorPosX((x / 2.f) - (cnt_button_size / 2.f));
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
         if (ImGui::Button("Continue without project", ImVec2(cnt_button_size, 0))) {
+          // No new_scene() here any more. The server owns the world and already has one, which the
+          // editor mirrors; authoring a second one locally left an orphaned scene that was never
+          // replicated and crashed when selected.
           auto& editor = App::mod<Editor>();
           editor.reset();
-          editor.new_scene();
           self.visible = false;
           ImGui::CloseCurrentPopup();
         }

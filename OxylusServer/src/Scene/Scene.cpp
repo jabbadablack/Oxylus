@@ -1144,8 +1144,15 @@ auto Scene::runtime_update(this Scene& self, const Timestep& delta_time) -> void
     self.physics_system->DrawBodies(settings, self.physics_debug_renderer.get());
   }
 
-  // Runs whether or not anything is drawing: the extract is simulation output, and a headless tick
-  // still produces it.
+  self.extract_for_render();
+}
+
+auto Scene::extract_for_render(this Scene& self) -> void {
+  ZoneScoped;
+
+  // Deliberately separate from runtime_update: turning world state into render data is the
+  // client's job, and the client does not simulate. The editor calls this on its replica every
+  // frame; runtime_update calls it too so a headless tick still produces a snapshot.
   self.extractor.extract(self, self.view_requests, self.frame_snapshot);
 
   // Motion vectors: this frame's world becomes next frame's previous. Done after the extract, so

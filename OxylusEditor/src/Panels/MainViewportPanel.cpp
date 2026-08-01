@@ -244,16 +244,17 @@ void MainViewportPanel::update(this MainViewportPanel& self, const Timestep& tim
     }
   }
 
-  // One tick for every registered scene, after every view request for this frame has been
-  // published and before anything reads the snapshot it produces.
-  Server::get()->tick(timestep);
-
+  // No simulation tick here, and none anywhere else in the editor - the world is simulated by the
+  // OxylusServer process and arrives as state. The extract still runs locally though: turning world
+  // state into render data is the client's job, and without it frame_snapshot stays empty and the
+  // viewport renders black while gizmos and icons (drawn separately) keep working.
   for (const auto& panel : self.viewport_panels) {
     auto* panel_scene = panel->get_scene();
 
     if (panel_scene) {
-      // The simulation is done for this tick; the view now turns its snapshot into GPU state.
-      panel->render_scene.prepare(panel_scene->get_scene()->frame_snapshot, panel_scene->get_scene()->renderer_cvar);
+      auto scene = panel_scene->get_scene();
+      scene->extract_for_render();
+      panel->render_scene.prepare(scene->frame_snapshot, scene->renderer_cvar);
     }
 
     if (panel->visible) {

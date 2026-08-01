@@ -18,6 +18,7 @@ enum class NetClientStatus : u32 {
 
 struct ClientSceneSnapshotEvent {
   u8 sequence;
+  SceneID scene_id;
   SceneState scene_state;
 };
 

@@ -17,6 +17,13 @@ struct ComponentState {
 
 struct EntityState {
   flecs::entity_t entity_id = 0;
+
+  // Identity and hierarchy do not live in any component, so a component-only snapshot loses them
+  // entirely - and the hierarchy panel is built on all three.
+  std::string name = {};
+  flecs::entity_t parent = 0;
+  bool enabled = true;
+
   ankerl::unordered_dense::map<flecs::id_t, ComponentState> components = {};
   ankerl::unordered_dense::set<flecs::id_t> removed_components = {};
 };
@@ -45,4 +52,12 @@ struct SceneSnapshotBuilder {
   auto delta(this SceneSnapshotBuilder& self) -> SceneState;
   static auto take_snapshot(flecs::world& world, SceneState& state) -> void;
 };
+
+// The inverse of take_snapshot: reconstructs the described entities in `world`.
+//
+// Entities are recreated with the ids they had on the sender, via ecs_make_alive, so a handle means
+// the same thing on both sides and commands can name an entity without a translation table.
+// Components are decoded through the same reflection take_snapshot encoded them with, never a
+// memcpy - several of them own heap storage or hold raw engine pointers.
+auto apply_scene_state(flecs::world& world, const SceneState& state) -> void;
 } // namespace ox

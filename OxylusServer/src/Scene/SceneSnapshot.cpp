@@ -4,6 +4,7 @@
 
 #include "Scene/ComponentBlob.hpp"
 #include "Scene/Components.hpp"
+#include "Utils/Log.hpp"
 
 namespace ox {
 auto SceneSnapshotBuilder::set_current(this SceneSnapshotBuilder& self, SceneState& new_state) -> void {
@@ -52,8 +53,17 @@ auto SceneSnapshotBuilder::delta(this SceneSnapshotBuilder& self) -> SceneState 
     if (last_it != last_state.entities.end()) {
       // this entity exist beteen current sequence and last sequence
       const auto& [last_entity_id, last_entity_state] = *last_it;
-      auto delta_entity = EntityState{.entity_id = entity_id};
-      auto changed = false;
+      auto delta_entity = EntityState{
+        .entity_id = entity_id,
+        .name = entity_state.name,
+        .parent = entity_state.parent,
+        .enabled = entity_state.enabled,
+      };
+
+      // A rename, a reparent or a disable changes nothing about the components, so identity
+      // has to be diffed separately or those edits never reach the client.
+      auto changed = entity_state.name != last_entity_state.name || entity_state.parent != last_entity_state.parent ||
+                     entity_state.enabled != last_entity_state.enabled;
       // check for changed components
       for (const auto& [component_id, component_state] : entity_state.components) {
         auto prev_component_it = last_entity_state.components.find(component_id);
@@ -106,28 +116,95 @@ auto SceneSnapshotBuilder::take_snapshot(flecs::world& world, SceneState& state)
         component_info = component.get<flecs::Component>();
       }
 
-      world.query_builder()
-        .with(component) //
-        .each([&](flecs::entity entity) {
-          auto entity_id = entity.id();
-          auto component_state = ComponentState{.id = component_id, .hash = ~0_u64};
-          if (is_component) {
-            // Through the reflection, not a memcpy of the raw bytes: several components own heap
-            // storage or raw engine pointers, and the reflection binds only the authoritative
-            // fields. The hash is taken over the encoded form so it tracks what actually shipped.
-            if (write_component_blob(entity, component_id, component_state.buffer)) {
-              component_state.hash = ankerl::unordered_dense::detail::wyhash::hash(
-                component_state.buffer.data(),
-                component_state.buffer.size()
-              );
-            }
+      // EcsQueryMatchDisabled, because flecs excludes disabled entities from queries by default.
+      // Without it a disabled entity vanishes from the snapshot entirely - and, far worse, a delta
+      // would then list it under removed_entities and the client would destroy it.
+      world.query_builder().with(component).query_flags(EcsQueryMatchDisabled).each([&](flecs::entity entity) {
+        auto entity_id = entity.id();
+        auto component_state = ComponentState{.id = component_id, .hash = ~0_u64};
+        if (is_component) {
+          // Through the reflection, not a memcpy of the raw bytes: several components own heap
+          // storage or raw engine pointers, and the reflection binds only the authoritative
+          // fields. The hash is taken over the encoded form so it tracks what actually shipped.
+          if (write_component_blob(entity, component_id, component_state.buffer)) {
+            component_state.hash = ankerl::unordered_dense::detail::wyhash::hash(
+              component_state.buffer.data(),
+              component_state.buffer.size()
+            );
           }
+        }
 
-          auto& entity_state = state.entities[entity_id];
-          entity_state.entity_id = entity_id;
-          entity_state.components.emplace(component_id, std::move(component_state));
-        });
+        auto& entity_state = state.entities[entity_id];
+        entity_state.entity_id = entity_id;
+        entity_state.name = entity.name().c_str();
+        entity_state.parent = entity.parent().id();
+        entity_state.enabled = !entity.has(flecs::Disabled);
+        entity_state.components.emplace(component_id, std::move(component_state));
+      });
     });
+}
+
+auto apply_scene_state(flecs::world& world, const SceneState& state) -> void {
+  ZoneScoped;
+
+  // Removals first: an entity destroyed on the sender must not survive here just because it also
+  // appears in an older part of the same delta.
+  for (const auto entity_id : state.removed_entities) {
+    if (world.is_alive(entity_id)) {
+      world.entity(entity_id).destruct();
+    }
+  }
+
+  // Two passes: every entity has to exist before any parent link is set, or an entity that arrives
+  // before its parent would be reparented to something not yet created.
+  for (const auto& [entity_id, entity_state] : state.entities) {
+    if (!world.is_alive(entity_id)) {
+      // The sender's id, not a fresh one. That is what lets a handle mean the same thing on both
+      // sides; ecs_make_alive is the only way to ask flecs for a specific id.
+      ecs_make_alive(world, entity_id);
+    }
+  }
+
+  for (const auto& [entity_id, entity_state] : state.entities) {
+    auto entity = world.entity(entity_id);
+
+    if (!entity_state.name.empty() && entity.name() != entity_state.name.c_str()) {
+      entity.set_name(entity_state.name.c_str());
+    }
+
+    const auto parent = entity_state.parent;
+    if (parent != 0 && world.is_alive(parent)) {
+      if (entity.parent().id() != parent) {
+        entity.child_of(world.entity(parent));
+      }
+    } else if (parent == 0 && entity.parent().id() != 0) {
+      entity.remove(flecs::ChildOf, flecs::Wildcard);
+    }
+
+    if (entity_state.enabled) {
+      entity.enable();
+    } else {
+      entity.disable();
+    }
+
+    for (const auto& component_id : entity_state.removed_components) {
+      if (entity.has(component_id)) {
+        entity.remove(component_id);
+      }
+    }
+
+    for (const auto& [component_id, component_state] : entity_state.components) {
+      // A tag carries no data, so there is nothing to decode - just make sure it is present.
+      if (component_state.hash == ~0_u64 && component_state.buffer.empty()) {
+        entity.add(component_id);
+        continue;
+      }
+
+      if (!read_component_blob(entity, component_id, component_state.buffer)) {
+        OX_LOG_WARN("Replicated component {} did not apply cleanly to entity {}.", component_id, entity_id);
+      }
+    }
+  }
 }
 
 } // namespace ox

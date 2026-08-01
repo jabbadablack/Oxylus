@@ -71,14 +71,29 @@ auto main(int argc, char** argv) -> int {
       static_cast<void>(server.deinit());
       return 1;
     }
+  } else {
+    // A client connecting to an empty server has nothing to show, so start with the default world
+    // rather than nothing. The client no longer authors this for itself.
+    server.create_default_scene();
   }
 
-  OX_LOG_INFO("Server running at {} tick/s with {} scene(s).", tick_rate, server.scenes().size());
+  const auto port = static_cast<u16>(std::stoi(arg_value(args, "--port", "7777")));
+  if (!server.listen(port)) {
+    OX_LOG_FATAL("Could not listen on port {}; is another server already running?", port);
+    static_cast<void>(server.deinit());
+    return 1;
+  }
 
-  // No networking yet: this loop exists to prove a real process ticks a world with no GPU. The
-  // NetServer that makes it reachable arrives in the next phase.
+  OX_LOG_INFO("Server running at {} tick/s with {} scene(s).", tick_rate, server.scene_count());
+
   for (auto tick = 0_i64; tick_limit == 0 || tick < tick_limit; ++tick) {
     server.tick_owned();
+
+    // A server with nobody attached has nothing to simulate for. This is also what stops a crashed
+    // editor from leaving the process running forever.
+    if (server.should_exit()) {
+      break;
+    }
   }
 
   OX_LOG_INFO("Server stopping.");

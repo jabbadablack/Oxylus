@@ -57,6 +57,11 @@ public:
   NotificationSystem notification_system = {};
 
   HandlerId scene_play_handler = {};
+
+  // The editor no longer owns a world. Each scene the server replicates gets a local EditorScene
+  // that is written only by apply_scene_state, keyed by the server's scene id.
+  HandlerId scene_snapshot_handler = {};
+  ankerl::unordered_dense::map<u64, SceneID> replica_scenes = {};
   HandlerId scene_stop_handler = {};
 
   auto init(this Editor& self) -> std::expected<void, std::string>;

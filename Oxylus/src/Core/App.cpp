@@ -1,6 +1,8 @@
 #include "Core/App.hpp"
 
 #include <SDL3/SDL_filesystem.h>
+#include <SDL3/SDL_process.h>
+#include <SDL3/SDL_timer.h>
 #include <vuk/vsl/Core.hpp>
 
 #include "Asset/AssetManager.hpp"
@@ -8,10 +10,13 @@
 #include "Core/Input.hpp"
 #include "Core/JobManager.hpp"
 #include "Core/VFS.hpp"
+#include "Networking/NetClient.hpp"
+#include "Networking/NetworkManager.hpp"
 #include "Render/RenderContext.hpp"
 #include "Render/Renderer.hpp"
 #include "Render/Window.hpp"
 #include "Scripting/LuaManager.hpp"
+#include "Server/ServerCommand.hpp"
 #include "UI/ImGuiRenderer.hpp"
 #include "Utils/Profiler.hpp"
 
@@ -60,6 +65,16 @@ auto App::init(this App& self) -> void {
 
   self.vfs.mount_dir(VFS::APP_DIR, std::filesystem::absolute(self.assets_path));
 
+  // Spawned here, before the window and the Vulkan context, deliberately. The server needs a couple
+  // of hundred milliseconds to boot and bind its port; the client spends far longer than that
+  // creating a window and a render context. Starting it first means the two overlap and the
+  // connect below finds it already listening, instead of adding its startup to ours.
+  if (self.wants_server && !self.spawn_server()) {
+    OX_LOG_FATAL("Could not start {}. The editor is a client and cannot run without it.", OX_SERVER_EXECUTABLE);
+    self.is_running = false;
+    return;
+  }
+
   if (self.window_info.has_value()) {
     self.window = Window::create(*self.window_info);
   }
@@ -92,6 +107,17 @@ auto App::init(this App& self) -> void {
     OX_LOG_ERROR("Failed to initalize simulation: {}", sim_init_result.error());
   }
 
+  // NetworkManager lives in the server-side registry, so the client can only be created once that
+  // is up - and it has to happen before the editor modules init, because they come up expecting a
+  // world to read.
+  if (self.wants_server) {
+    if (const auto result = self.connect_to_server(); !result.has_value()) {
+      OX_LOG_FATAL("Could not reach the server: {}", result.error());
+      self.is_running = false;
+      return;
+    }
+  }
+
   self.registry.init();
 
   // Presentation-side Lua bindings are handed to the simulation's LuaManager once the modules they
@@ -99,6 +125,147 @@ auto App::init(this App& self) -> void {
   bind_client_lua_bindings();
 
   self.job_manager.wait();
+}
+
+auto App::with_server(this App& self, const u16 port) -> App& {
+  self.wants_server = true;
+  self.server_port = port;
+  return self;
+}
+
+auto App::spawn_server(this App& self) -> bool {
+  ZoneScoped;
+
+  // --server-port lets a second editor use its own server; --attach-server skips spawning
+  // altogether so the server can be run under a debugger and connected to.
+  // Non-const: option::value() forwards `self` as a non-const rvalue, so it does not compile on a
+  // const option. See the note in OxylusServer/main.cpp.
+  if (auto index = self.command_line_args.get_index("--server-port")) {
+    auto value = self.command_line_args.get(index.value() + 1);
+    if (value.has_value()) {
+      self.server_port = static_cast<u16>(std::stoi(value->arg_str));
+    }
+  }
+
+  if (self.command_line_args.contains("--attach-server")) {
+    OX_LOG_INFO("--attach-server: expecting a server already listening on port {}.", self.server_port);
+    return true;
+  }
+
+  const auto executable = (std::filesystem::current_path() / OX_SERVER_EXECUTABLE).string();
+  const auto port = std::to_string(self.server_port);
+
+  // Child stdio is inherited rather than piped, so the server's log lands in the same console as
+  // ours. A crash in another process is hard enough to see without hiding its output.
+  const char* argv[] = {executable.c_str(), "--port", port.c_str(), nullptr};
+  auto* process = SDL_CreateProcess(argv, false);
+  if (process == nullptr) {
+    OX_LOG_ERROR("SDL_CreateProcess failed: {}", SDL_GetError());
+    return false;
+  }
+
+  self.server_process = process;
+  OX_LOG_INFO("Spawned {} on port {}.", OX_SERVER_EXECUTABLE, self.server_port);
+
+  return true;
+}
+
+auto App::connect_to_server(this App& self) -> std::expected<void, std::string> {
+  ZoneScoped;
+
+  auto& network = Server::mod<NetworkManager>();
+  self.server_client = network.create_client();
+  if (self.server_client == nullptr) {
+    return std::unexpected("could not create a network client");
+  }
+
+  self.server_client->set_tick_rate(60.0);
+
+  constexpr auto CONNECT_TIMEOUT_MS = 10000.0;
+
+  if (!self.server_client->connect("127.0.0.1", self.server_port, CONNECT_TIMEOUT_MS)) {
+    return std::unexpected("could not start connecting");
+  }
+
+  // connect() only starts the handshake; it completes inside tick(). Pump it here rather than
+  // letting the first frames run unconnected, because everything downstream expects a world.
+  const auto deadline = SDL_GetTicks() + static_cast<u64>(CONNECT_TIMEOUT_MS);
+  while (SDL_GetTicks() < deadline) {
+    self.timestep.on_update();
+    self.server_client->tick(self.timestep);
+
+    if (self.server_client->status == NetClientStatus::Connected) {
+      OX_LOG_INFO("Connected to the server on port {}.", self.server_port);
+      return {};
+    }
+
+    if (
+      self.server_client->status == NetClientStatus::TimedOut ||
+      self.server_client->status == NetClientStatus::Disconnected
+    ) {
+      break;
+    }
+
+    SDL_Delay(1);
+  }
+
+  return std::unexpected(fmt::format("no response on port {} within {} ms", self.server_port, CONNECT_TIMEOUT_MS));
+}
+
+auto App::send_command(const ServerCommand& command) -> void {
+  ZoneScoped;
+
+  auto* self = get();
+  if (self == nullptr || self->server_client == nullptr) {
+    OX_LOG_ERROR("Dropped an edit: not connected to a server.");
+    return;
+  }
+
+  const auto bytes = serialize_command(command);
+  const auto params = std::array{RPCParameter{.value = std::vector<u8>(bytes.begin(), bytes.end())}};
+
+  auto packet = NetPacket::rpc("ox.command", params);
+  if (!packet.has_value()) {
+    OX_LOG_ERROR("Could not serialise an edit.");
+    return;
+  }
+
+  // Reliable: a lost edit is not something replication can repair, unlike a lost snapshot.
+  self->server_client->send_reliable(packet.value());
+}
+
+auto App::is_connected_to_server(this const App& self) -> bool {
+  return self.server_client != nullptr && self.server_client->status == NetClientStatus::Connected;
+}
+
+auto App::disconnect_from_server(this App& self) -> void {
+  ZoneScoped;
+
+  if (self.server_client != nullptr) {
+    self.server_client->disconnect(false);
+
+    // NetworkManager owns the client and asserts its list is empty on deinit, so dropping the
+    // pointer is not enough - it has to be handed back.
+    Server::mod<NetworkManager>().destroy_client(self.server_client);
+    self.server_client = nullptr;
+  }
+
+  if (self.server_process != nullptr) {
+    auto* process = static_cast<SDL_Process*>(self.server_process);
+
+    // The server also exits on its own once the last client drops, so give it a moment to do that
+    // cleanly before killing it - a killed process never runs its deinit.
+    auto exit_code = 0;
+    for (auto i = 0; i < 50 && !SDL_WaitProcess(process, false, &exit_code); ++i) {
+      SDL_Delay(10);
+    }
+
+    SDL_KillProcess(process, false);
+    SDL_DestroyProcess(process);
+    self.server_process = nullptr;
+
+    OX_LOG_INFO("Server process stopped.");
+  }
 }
 
 auto App::step(this App& self) -> void {
@@ -121,6 +288,11 @@ auto App::step(this App& self) -> void {
 
   if (!self.is_running)
     return;
+
+  // Pumped before the modules run so the world they read is this frame's, not last frame's.
+  if (self.server_client != nullptr) {
+    self.server_client->tick(self.timestep);
+  }
 
   self.registry.update(self.timestep);
 
@@ -145,6 +317,10 @@ void App::stop(this App& self) {
   ZoneScoped;
 
   self.is_running = false;
+
+  // Before the modules go away: the client belongs to NetworkManager, and the server should be
+  // told we are leaving rather than discovering it by timeout.
+  self.disconnect_from_server();
 
   // Single point where the close is announced, so it fires no matter how the loop was left.
   std::ignore = self.event_system.emit<AppCloseEvent>(AppCloseEvent{});

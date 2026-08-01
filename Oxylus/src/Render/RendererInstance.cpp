@@ -46,10 +46,28 @@ auto update_projected_transform_buffer(
     return;
   }
 
+  // The dirty list is a hint, not a contract: it is produced from a slot map that can have moved on
+  // since the array was built - and once the world is replicated from another process, the producer
+  // is not even the same program. An id that decodes past the end must be dropped rather than used
+  // to index, or this reads out of bounds (and a debug-build span aborts with nothing in the log).
   auto unique_indices = stack.alloc<u32>(dirty_transform_ids.size());
-  for (const auto& [unique_index, dirty_id] : std::views::zip(unique_indices, dirty_transform_ids)) {
-    unique_index = SlotMap_decode_id(dirty_id).index;
+  auto valid_count = 0_sz;
+  for (const auto dirty_id : dirty_transform_ids) {
+    const auto index = SlotMap_decode_id(dirty_id).index;
+    if (index < element_count) {
+      unique_indices[valid_count++] = index;
+    }
   }
+  unique_indices = unique_indices.first(valid_count);
+
+  if (unique_indices.empty()) {
+    if (buffer) {
+      prepared_buffer = vuk::acquire_buf(buffer_name, *buffer, vuk::Access::eMemoryRead);
+    }
+
+    return;
+  }
+
   std::sort(unique_indices.begin(), unique_indices.end());
   const auto unique_end = std::unique(unique_indices.begin(), unique_indices.end());
   unique_indices = unique_indices.first(static_cast<usize>(unique_end - unique_indices.begin()));

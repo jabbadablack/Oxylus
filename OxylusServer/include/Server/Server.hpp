@@ -6,7 +6,11 @@
 #include <span>
 #include <vector>
 
+#include "Asset/Fwd.hpp"
 #include "Core/ModuleRegistry.hpp"
+#include "Networking/Fwd.hpp"
+#include "Scene/SceneSnapshot.hpp"
+#include "Server/ServerCommand.hpp"
 #include "Utils/Timestep.hpp"
 
 namespace ox {
@@ -14,6 +18,7 @@ class VFS;
 class JobManager;
 class EventSystem;
 class Scene;
+struct NetServer;
 
 // The simulation's own host: it owns the headless module registry and hands simulation code the
 // shared services, so nothing on that side has to reach for App.
@@ -66,7 +71,19 @@ public:
   // Loads a scene from disk, registers it, and returns it. Null on failure.
   auto load_scene(this Server& self, const std::filesystem::path& path) -> std::shared_ptr<Scene>;
 
-  auto scenes(this const Server& self) -> std::span<const std::shared_ptr<Scene>> { return self.scenes_; }
+  // Creates and registers the default starting world - a sun and a camera. The client no longer
+  // authors this; it mirrors whatever the server has.
+  auto create_default_scene(this Server& self, const std::string& name = "Untitled") -> std::shared_ptr<Scene>;
+
+  auto scene_count(this const Server& self) -> usize { return self.scenes_.size(); }
+
+  // Starts listening for clients. Replication begins as soon as one connects: a full state first,
+  // then a delta per network tick. Returns false if the port could not be bound.
+  auto listen(this Server& self, u16 port, u32 max_clients = 4) -> bool;
+
+  // True once the last client has gone. A server with nobody attached has nothing to simulate for,
+  // and this is what stops a crashed editor from orphaning the process.
+  auto should_exit(this const Server& self) -> bool { return self.should_exit_; }
 
   template <typename T, typename... Args>
   auto add(this Server& self, Args&&... args) -> void {
@@ -107,6 +124,33 @@ private:
 
   ModuleRegistry registry = {};
 
-  std::vector<std::shared_ptr<Scene>> scenes_ = {};
+  // A scene plus the replication state for it. The id is the registration order, which is all the
+  // client needs to tell one replica from another.
+  struct RegisteredScene {
+    std::shared_ptr<Scene> scene = nullptr;
+    SceneID id = SceneID::Invalid;
+    SceneSnapshotBuilder builder = {};
+  };
+
+  auto replicate(this Server& self) -> void;
+  auto apply_pending_commands(this Server& self) -> void;
+  auto send_state(this Server& self, NetClientID client_id, RegisteredScene& registered, const SceneState& state)
+    -> void;
+
+public:
+  // Called by the NetServer subclass in Server.cpp. Public only because that type is defined there.
+  auto on_client_connected(this Server& self, NetClientID client_id) -> void;
+  auto on_client_disconnected(this Server& self, NetClientID client_id) -> void;
+  auto on_client_acked(this Server& self, u8 sequence) -> void;
+
+private:
+  std::vector<RegisteredScene> scenes_ = {};
+  NetServer* net_server_ = nullptr;
+  bool had_client_ = false;
+  bool should_exit_ = false;
+
+  // Commands arrive on the network thread of the tick and are applied at the top of the next one,
+  // so the world is only ever mutated at a single, known point.
+  std::vector<ServerCommand> pending_commands_ = {};
 };
 } // namespace ox

@@ -9,6 +9,7 @@
 #include "Core/App.hpp"
 #include "Editor.hpp"
 #include "Render/DebugRenderer.hpp"
+#include "Server/ServerCommand.hpp"
 #include "Utils/ServerCommandRecord.hpp"
 
 namespace ox {
@@ -62,16 +63,11 @@ auto SceneHierarchyPanel::on_update(this SceneHierarchyPanel& self) -> void {
     }
 
     if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyPressed(ImGuiKey_D)) {
-      auto clone_entity = [](flecs::entity entity) -> flecs::entity {
-        std::string clone_name = entity.name().c_str();
-        while (entity.world().lookup(clone_name.data())) {
-          clone_name = fmt::format("{}_clone", clone_name);
+      App::send_command(
+        ServerCommand{
+          .payload = CmdCloneEntity{.entity = static_cast<EntityHandle>(self.viewer.selected_entity_.get().id())},
         }
-        auto cloned_entity = entity.clone(true);
-        return cloned_entity.set_name(clone_name.data());
-      };
-
-      self.viewer.selected_entity_.set(clone_entity(self.viewer.selected_entity_.get()));
+      );
     }
     if (
       ImGui::IsKeyPressed(ImGuiKey_Delete) &&

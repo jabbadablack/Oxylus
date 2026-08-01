@@ -3,6 +3,7 @@
 #include <string>
 #include <utility>
 
+#include "Core/App.hpp"
 #include "Scene/Scene.hpp"
 #include "Server/ServerCommand.hpp"
 #include "Utils/Command.hpp"
@@ -19,24 +20,21 @@ namespace ox {
 // forward edit went through.
 class ServerCommandRecord : public Command {
 public:
-  ServerCommandRecord(Scene* scene, ServerCommand forward, ServerCommand inverse, std::string id, std::string merge_key = {})
+  ServerCommandRecord(
+    Scene* scene, ServerCommand forward, ServerCommand inverse, std::string id, std::string merge_key = {}
+  )
       : scene_(scene),
         forward_(std::move(forward)),
         inverse_(std::move(inverse)),
         id_(std::move(id)),
         merge_key_(std::move(merge_key)) {}
 
-  auto execute() -> void override {
-    if (scene_ != nullptr) {
-      static_cast<void>(apply_command(*scene_, forward_));
-    }
-  }
+  // Both directions go the same way: to the server. The editor has no authoritative world to
+  // mutate, so an edit is a request, and the result comes back through replication like any other
+  // change. Undo is not a special path - it is the inverse command through the same channel.
+  auto execute() -> void override { App::send_command(forward_); }
 
-  auto undo() -> void override {
-    if (scene_ != nullptr) {
-      static_cast<void>(apply_command(*scene_, inverse_));
-    }
-  }
+  auto undo() -> void override { App::send_command(inverse_); }
 
   auto get_id() const -> std::string_view override { return id_; }
 

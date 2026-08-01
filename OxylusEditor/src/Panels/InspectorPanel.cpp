@@ -13,6 +13,7 @@
 #include "Memory/Stack.hpp"
 #include "Scene/ComponentBlob.hpp"
 #include "Scene/EntitySerializer.hpp"
+#include "Server/ServerCommand.hpp"
 #include "UI/PayloadData.hpp"
 #include "UI/UI.hpp"
 #include "Utils/EditorTheme.hpp"
@@ -586,7 +587,11 @@ void InspectorPanel::draw_components(this InspectorPanel& self, flecs::entity en
     ImGui::SetKeyboardFocusHere();
   UI::push_frame_style();
   if (ImGui::InputText("##Tag", &new_name, ImGuiInputTextFlags_EnterReturnsTrue)) {
-    entity.set_name(new_name.c_str());
+    App::send_command(
+      ServerCommand{
+        .payload = CmdRenameEntity{.entity = static_cast<EntityHandle>(entity.id()), .name = new_name},
+      }
+    );
   }
   UI::pop_frame_style();
   ImGui::PopItemWidth();

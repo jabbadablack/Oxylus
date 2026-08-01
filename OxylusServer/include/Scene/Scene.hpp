@@ -110,6 +110,10 @@ public:
   auto runtime_stop(this Scene& self) -> void;
   auto runtime_update(this Scene& self, const Timestep& delta_time) -> void;
 
+  // Rebuilds frame_snapshot from the current world. Client-side per frame; also called at the end
+  // of runtime_update so a headless tick still produces one.
+  auto extract_for_render(this Scene& self) -> void;
+
   auto defer_function(this Scene& self, const std::function<void(Scene* scene)>& func) -> void;
 
   auto disable_phases(const std::vector<flecs::entity_t>& phases) -> void;

@@ -167,6 +167,18 @@ auto SceneManager::load_default_scene(this SceneManager& self, SceneID scene_id)
   camera.set<CameraComponent>({});
 }
 
+auto SceneManager::try_get_scene(this const SceneManager& self, const SceneID scene_id)
+  -> std::shared_ptr<EditorScene> {
+  ZoneScoped;
+
+  if (scene_id == SceneID::Invalid) {
+    return nullptr;
+  }
+
+  auto* scene_ptr = self.scenes.slotc(scene_id);
+  return scene_ptr != nullptr ? *scene_ptr : nullptr;
+}
+
 auto SceneManager::get_scene(this const SceneManager& self, SceneID scene_id) -> std::shared_ptr<EditorScene> {
   ZoneScoped;
 

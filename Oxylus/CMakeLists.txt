@@ -37,6 +37,13 @@ target_link_libraries(Oxylus PUBLIC
   RmlUi::RmlUi
   RmlUi::Lua)
 
+# The client spawns this by name, so the name lives in one place.
+if(WIN32)
+  target_compile_definitions(Oxylus PRIVATE OX_SERVER_EXECUTABLE="OxylusServer.exe")
+else()
+  target_compile_definitions(Oxylus PRIVATE OX_SERVER_EXECUTABLE="OxylusServer")
+endif()
+
 ox_set_rpath(Oxylus)
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${OX_CLIENT_SOURCES})

@@ -48,6 +48,10 @@ public:
 
   auto get_scene(this const SceneManager& self, SceneID scene_id) -> std::shared_ptr<EditorScene>;
 
+  // Null instead of asserting when the id is stale. Replica bookkeeping outlives the scenes it
+  // points at - a closed tab, a reset - so the caller needs to ask rather than assume.
+  auto try_get_scene(this const SceneManager& self, SceneID scene_id) -> std::shared_ptr<EditorScene>;
+
 private:
   SlotMap<std::shared_ptr<EditorScene>, SceneID> scenes = {};
 

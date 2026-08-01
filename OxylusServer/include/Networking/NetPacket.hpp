@@ -10,6 +10,7 @@
 #include <vector>
 #include <zpp_bits.h>
 
+#include "Asset/Fwd.hpp"
 #include "Core/Option.hpp"
 #include "Core/Types.hpp"
 #include "Core/UUID.hpp"
@@ -33,6 +34,9 @@ struct NetHandshakePacket {
 
 struct NetSceneSnapshotPacket {
   u8 sequence = 0;
+  // Which scene this state belongs to. The editor holds several open at once, so a snapshot
+  // without one would be applied to whichever replica happened to be first.
+  SceneID scene_id = SceneID::Invalid;
   SceneState state = {};
 };
 
@@ -83,7 +87,7 @@ struct NetPacket {
   ENetPacket* inner = nullptr;
 
   static auto handshake(const NetHandshakePacket& info) -> option<NetPacket>;
-  static auto scene_snapshot(const SceneState& state, u8 sequence) -> option<NetPacket>;
+  static auto scene_snapshot(const SceneState& state, u8 sequence, SceneID scene_id) -> option<NetPacket>;
   static auto client_ack(const NetClientAckPacket& info) -> option<NetPacket>;
   static auto rpc(std::string_view proc, std::span<const RPCParameter> params) -> option<NetPacket>;
 

@@ -3,6 +3,7 @@
 #include "Asset/AssetManager.hpp"
 #include "Core/App.hpp"
 #include "Memory/SlotMap.hpp"
+#include "Utils/Log.hpp"
 
 namespace ox {
 RenderScene::~RenderScene() = default;
@@ -45,6 +46,22 @@ auto RenderScene::prepare(this RenderScene& self, const FrameSnapshot& snapshot,
       const auto material_asset = asset_man.get_asset(mesh_instance.material_uuid);
       const auto material_id = material_asset ? material_asset->material_id
                                               : asset_man.get_null_material()->material_id;
+
+      // mesh_node_index is authored by whoever produced the snapshot - a different process, once
+      // the world is replicated - while gpu_meshes belongs to the model this client loaded. They
+      // agree only if both sides loaded the same asset, so verify rather than assume.
+      if (
+        mesh_instance.mesh_node_index >= model->gpu_meshes.size() ||
+        mesh_instance.mesh_node_index >= model->lod0_meshlet_counts.size()
+      ) {
+        OX_LOG_WARN(
+          "Mesh instance references node {} of model {}, which has {} node(s); skipping it.",
+          mesh_instance.mesh_node_index,
+          mesh_instance.model_uuid.str(),
+          model->gpu_meshes.size()
+        );
+        continue;
+      }
 
       const auto unique_mesh = std::pair(mesh_instance.model_uuid, mesh_instance.mesh_node_index);
       auto mesh_index = 0_u32;

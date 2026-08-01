@@ -1,6 +1,7 @@
 #include "Utils/Log.hpp"
 
 #include <filesystem>
+#include <fmt/format.h>
 
 namespace ox {
 void Log::init(int argc, char** argv) {
@@ -14,11 +15,19 @@ void Log::init(int argc, char** argv) {
 
   loguru::init(argc, argv, {.verbosity_flag = nullptr});
 
-  // Put every log message in "everything.log":
-  loguru::add_file("logs/everything.log", loguru::Append, loguru::Verbosity_MAX);
+  // Named per executable. The client and the server run from the same directory, so a shared
+  // "latest.log" opened with Truncate means whichever starts second wipes the other's log - and
+  // the one that gets wiped is usually the one that crashed.
+  const auto name = argc > 0 && argv != nullptr ? std::filesystem::path(argv[0]).stem().string() : std::string("ox");
 
-  // Only log INFO, WARNING, ERROR and FATAL to "latest_readable.log":
-  loguru::add_file("logs/latest.log", loguru::Truncate, loguru::Verbosity_INFO);
+  loguru::add_file(fmt::format("logs/{}_everything.log", name).c_str(), loguru::Append, loguru::Verbosity_MAX);
+  loguru::add_file(fmt::format("logs/{}_latest.log", name).c_str(), loguru::Truncate, loguru::Verbosity_INFO);
+
+  // Flush every message instead of on a timer. abort() - from a failed assert, or a debug-STL
+  // bounds check - skips the flush entirely, so a buffered log loses exactly the lines that say
+  // why the process died. That matters more now that a crash can happen in either of two
+  // processes, and it costs nothing a crashing program can no longer afford.
+  loguru::g_flush_interval_ms = 0;
 }
 void Log::shutdown() { loguru::shutdown(); }
 

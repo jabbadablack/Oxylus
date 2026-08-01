@@ -13,6 +13,7 @@
 #include "Render/RenderContext.hpp"
 #include "Render/Utils/VukCommon.hpp"
 #include "Scene/Components.hpp"
+#include "Server/ServerCommand.hpp"
 #include "UI/ImGuiRenderer.hpp"
 #include "UI/PayloadData.hpp"
 #include "UI/UI.hpp"
@@ -433,8 +434,9 @@ auto ViewportPanel::drag_drop(this const ViewportPanel& self) -> void {
       const auto* payload = PayloadData::from_payload(imgui_payload);
       const auto path = payload->get_path();
       if (path.extension() == ".gltf" || path.extension() == ".glb") {
-        if (auto asset = App::mod<AssetManager>().import_asset(path))
-          self.editor_scene->get_scene()->create_model_entity(asset);
+        if (auto asset = App::mod<AssetManager>().import_asset(path)) {
+          App::send_command(ServerCommand{.payload = CmdSpawnModel{.model_uuid = asset}});
+        }
       }
     }
 
