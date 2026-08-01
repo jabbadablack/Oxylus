@@ -86,10 +86,11 @@ auto NetPacket::handshake(const NetHandshakePacket& info) -> option<NetPacket> {
   return serialize_packet(NetPacketType::Handshake, info);
 }
 
-auto NetPacket::scene_snapshot(const SceneState& state, u8 sequence, SceneID scene_id) -> option<NetPacket> {
+auto NetPacket::scene_snapshot(const SceneState& state, u8 sequence, SceneID scene_id, bool playing)
+  -> option<NetPacket> {
   ZoneScoped;
 
-  return serialize_packet(NetPacketType::SceneSnapshot, sequence, scene_id, state);
+  return serialize_packet(NetPacketType::SceneSnapshot, sequence, scene_id, playing, state);
 }
 
 auto NetPacket::client_ack(const NetClientAckPacket& info) -> option<NetPacket> {
@@ -156,7 +157,7 @@ auto NetPacket::get_scene_snapshot(this NetPacket& self) -> option<NetSceneSnaps
   ZoneScoped;
 
   auto info = NetSceneSnapshotPacket{};
-  if (!deserialize_packet(self, NetPacketType::SceneSnapshot, info.sequence, info.scene_id, info.state)) {
+  if (!deserialize_packet(self, NetPacketType::SceneSnapshot, info.sequence, info.scene_id, info.playing, info.state)) {
     return nullopt;
   }
 

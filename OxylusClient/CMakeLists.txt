@@ -9,6 +9,10 @@
 
 file(GLOB_RECURSE OX_CLIENT_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
+# The runtime executable entry point lives in the source tree but must not end up in the library,
+# the same way ResourceCompiler excludes cli.cpp from its glob.
+list(FILTER OX_CLIENT_SOURCES EXCLUDE REGEX "/src/Core/runtime\.cpp$")
+
 if(NOT OX_LUA_BINDINGS)
   list(FILTER OX_CLIENT_SOURCES EXCLUDE REGEX "/src/Scripting/[^/]*Bindings[^/]*\\.cpp$")
 endif()
@@ -45,5 +49,19 @@ else()
 endif()
 
 ox_set_rpath(Oxylus)
+
+# The game runtime, built by the client half rather than by a target of its own. It is App plus
+# DefaultModules with no Editor module - the difference between a game and the editor is one
+# module, which is the point.
+add_executable(OxylusRuntime "${CMAKE_CURRENT_SOURCE_DIR}/src/Core/runtime.cpp")
+
+target_compile_features(OxylusRuntime PRIVATE cxx_std_23)
+set_target_properties(OxylusRuntime PROPERTIES
+  CXX_EXTENSIONS OFF
+  RUNTIME_OUTPUT_DIRECTORY "${OX_OUTPUT_DIR}")
+
+target_link_libraries(OxylusRuntime PRIVATE ox_project_options ox::Oxylus)
+
+ox_set_rpath(OxylusRuntime)
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${OX_CLIENT_SOURCES})

@@ -1,6 +1,6 @@
 include_guard(GLOBAL)
 
-set(OX_SHADER_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/Oxylus/src/Render/Shaders"
+set(OX_SHADER_SOURCE_ROOT "${CMAKE_SOURCE_DIR}/OxylusClient/src/Render/Shaders"
     CACHE INTERNAL "Root directory every shader session TOML resolves against")
 
 set(OX_RESOURCE_EXTENSIONS

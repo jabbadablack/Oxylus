@@ -12,6 +12,10 @@
 
 file(GLOB_RECURSE OX_SERVER_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
+# The executable entry point lives in the source tree but must not end up in the library - the
+# same reason ResourceCompiler excludes cli.cpp from its glob.
+list(FILTER OX_SERVER_SOURCES EXCLUDE REGEX "/src/Core/server\.cpp$")
+
 list(FILTER OX_SERVER_SOURCES EXCLUDE REGEX "/src/OS/(Win32|Linux|MacOS)[^/]*\\.cpp$")
 if(WIN32)
   list(APPEND OX_SERVER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/OS/Win32.cpp")
@@ -112,7 +116,7 @@ target_link_libraries(OxylusServerLib PUBLIC
 
 source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${OX_SERVER_SOURCES})
 
-add_executable(OxylusServer "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp")
+add_executable(OxylusServer "${CMAKE_CURRENT_SOURCE_DIR}/src/Core/server.cpp")
 
 target_compile_features(OxylusServer PRIVATE cxx_std_23)
 set_target_properties(OxylusServer PROPERTIES

@@ -16,7 +16,6 @@
 #include "Render/Renderer.hpp"
 #include "Render/Window.hpp"
 #include "Scripting/LuaManager.hpp"
-#include "Server/ServerCommand.hpp"
 #include "UI/ImGuiRenderer.hpp"
 #include "Utils/Profiler.hpp"
 
@@ -212,21 +211,18 @@ auto App::connect_to_server(this App& self) -> std::expected<void, std::string> 
   return std::unexpected(fmt::format("no response on port {} within {} ms", self.server_port, CONNECT_TIMEOUT_MS));
 }
 
-auto App::send_command(const ServerCommand& command) -> void {
+auto App::send_rpc(const std::string_view proc, const std::span<const RPCParameter> params) -> void {
   ZoneScoped;
 
   auto* self = get();
   if (self == nullptr || self->server_client == nullptr) {
-    OX_LOG_ERROR("Dropped an edit: not connected to a server.");
+    OX_LOG_ERROR("Dropped a call to \"{}\": not connected to a server.", proc);
     return;
   }
 
-  const auto bytes = serialize_command(command);
-  const auto params = std::array{RPCParameter{.value = std::vector<u8>(bytes.begin(), bytes.end())}};
-
-  auto packet = NetPacket::rpc("ox.command", params);
+  auto packet = NetPacket::rpc(proc, params);
   if (!packet.has_value()) {
-    OX_LOG_ERROR("Could not serialise an edit.");
+    OX_LOG_ERROR("Could not serialise a call to \"{}\".", proc);
     return;
   }
 

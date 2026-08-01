@@ -1150,6 +1150,19 @@ auto Scene::runtime_update(this Scene& self, const Timestep& delta_time) -> void
 auto Scene::extract_for_render(this Scene& self) -> void {
   ZoneScoped;
 
+  // Camera matrices are derived, and derived state is not replicated - CameraComponent only
+  // carries its parameters. camera_update computes them in PostUpdate on whichever process
+  // ticks; a client mirroring a scene does not tick, so it has to compute them itself or a
+  // SimEntity view renders nothing at all.
+  self.world.each([&self](flecs::entity entity, CameraComponent& camera) {
+    if (!entity.has<TransformComponent>()) {
+      return;
+    }
+
+    camera.position = entity.get<TransformComponent>().position;
+    Camera::update(camera, self.viewport_extent_for(entity));
+  });
+
   // Deliberately separate from runtime_update: turning world state into render data is the
   // client's job, and the client does not simulate. The editor calls this on its replica every
   // frame; runtime_update calls it too so a headless tick still produces a snapshot.

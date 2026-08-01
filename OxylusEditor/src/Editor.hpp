@@ -62,6 +62,19 @@ public:
   // that is written only by apply_scene_state, keyed by the server's scene id.
   HandlerId scene_snapshot_handler = {};
   ankerl::unordered_dense::map<u64, SceneID> replica_scenes = {};
+
+  // Scenes we have asked the server to destroy. Snapshots for them are already on the wire
+  // when the request goes out, and without this the next one looks like a brand new scene and
+  // reopens the tab - which is why closing only stuck on the second try. Server scene ids are
+  // monotonic and never reused, so an entry here can safely be kept forever.
+  ankerl::unordered_dense::set<u64> closed_scenes = {};
+
+  // Asks the server to destroy the scene behind a local replica, and forgets the mapping so a
+  // snapshot still in flight cannot bring it back.
+  auto close_replica_scene(this Editor& self, SceneID local_id) -> void;
+
+  // The server id behind a local replica, or ~0 when there is none.
+  auto server_scene_id(this const Editor& self, SceneID local_id) -> u64;
   HandlerId scene_stop_handler = {};
 
   auto init(this Editor& self) -> std::expected<void, std::string>;

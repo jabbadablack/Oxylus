@@ -10,7 +10,6 @@
 #include "Core/ModuleRegistry.hpp"
 #include "Networking/Fwd.hpp"
 #include "Scene/SceneSnapshot.hpp"
-#include "Server/ServerCommand.hpp"
 #include "Utils/Timestep.hpp"
 
 namespace ox {
@@ -130,10 +129,10 @@ private:
     std::shared_ptr<Scene> scene = nullptr;
     SceneID id = SceneID::Invalid;
     SceneSnapshotBuilder builder = {};
+    bool playing = false;
   };
 
   auto replicate(this Server& self) -> void;
-  auto apply_pending_commands(this Server& self) -> void;
   auto send_state(this Server& self, NetClientID client_id, RegisteredScene& registered, const SceneState& state)
     -> void;
 
@@ -145,12 +144,12 @@ public:
 
 private:
   std::vector<RegisteredScene> scenes_ = {};
+
+  // Never reused. Deriving an id from scenes_.size() meant a destroyed scene freed its id for
+  // the next one, and a client still holding the old mapping applied state to the wrong replica.
+  u64 next_scene_id_ = 0;
   NetServer* net_server_ = nullptr;
   bool had_client_ = false;
   bool should_exit_ = false;
-
-  // Commands arrive on the network thread of the tick and are applied at the top of the next one,
-  // so the world is only ever mutated at a single, known point.
-  std::vector<ServerCommand> pending_commands_ = {};
 };
 } // namespace ox

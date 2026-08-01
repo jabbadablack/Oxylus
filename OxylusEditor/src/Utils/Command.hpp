@@ -25,19 +25,39 @@ public:
 
 class LambdaCommand : public Command {
 public:
-  LambdaCommand(std::function<void()> execute, std::function<void()> undo, std::string id)
+  // merge_key is optional. Give two commands the same non-empty key and consecutive ones
+  // inside the undo system's merge window collapse into a single step, keeping the newest
+  // forward and the oldest inverse - which is what makes a gizmo drag one undo, not sixty.
+  LambdaCommand(std::function<void()> execute, std::function<void()> undo, std::string id, std::string merge_key = {})
       : execute_func_(std::move(execute)),
         undo_func_(std::move(undo)),
-        id_(id) {}
+        id_(std::move(id)),
+        merge_key_(std::move(merge_key)) {}
 
   auto execute() -> void override { execute_func_(); }
   auto undo() -> void override { undo_func_(); }
   auto get_id() const -> std::string_view override { return id_; }
 
+  auto can_merge(const Command& other) const -> bool override {
+    const auto* command = dynamic_cast<const LambdaCommand*>(&other);
+    return command != nullptr && !merge_key_.empty() && command->merge_key_ == merge_key_;
+  }
+
+  auto merge(std::unique_ptr<Command> other) -> std::unique_ptr<Command> override {
+    auto* command = dynamic_cast<LambdaCommand*>(other.get());
+    if (command == nullptr) {
+      return nullptr;
+    }
+
+    // Newest forward, oldest inverse: undoing a drag returns to where it started.
+    return std::make_unique<LambdaCommand>(command->execute_func_, undo_func_, id_, merge_key_);
+  }
+
 private:
   std::function<void()> execute_func_;
   std::function<void()> undo_func_;
   std::string id_;
+  std::string merge_key_;
 };
 
 class CommandGroup : public Command {

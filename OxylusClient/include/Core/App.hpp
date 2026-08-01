@@ -14,7 +14,7 @@ namespace ox {
 class ImGuiLayer;
 class RenderContext;
 struct NetClient;
-struct ServerCommand;
+struct RPCParameter;
 
 struct WindowResizeEvent {
   u32 width = 0;
@@ -128,9 +128,9 @@ private:
   auto is_connected_to_server(this const App& self) -> bool;
 
 public:
-  // Sends an edit to the server. The single way client code changes the world - there is no local
-  // path any more, so a dropped connection means edits visibly stop rather than silently diverge.
-  static auto send_command(const ServerCommand& command) -> void;
+  // Calls a proc the server registered. The single way client code changes the world, and the
+  // same call a game makes - the editor is not privileged here, it just knows more proc names.
+  static auto send_rpc(std::string_view proc, std::span<const RPCParameter> params) -> void;
 
 private:
 private:

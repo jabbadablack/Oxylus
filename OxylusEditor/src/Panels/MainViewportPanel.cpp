@@ -6,6 +6,7 @@
 
 #include "Core/App.hpp"
 #include "Editor.hpp"
+#include "Networking/NetPacket.hpp"
 #include "Server/Server.hpp"
 #include "UI/PayloadData.hpp"
 #include "UI/UI.hpp"
@@ -31,15 +32,37 @@ auto MainViewportPanel::init(this MainViewportPanel& self) -> void {
                               .value_or(0);
   self.scene_play_handler = event_system
                               .subscribe<Editor::ScenePlayEvent>([&self](const Editor::ScenePlayEvent& e) {
+                                // The server makes and runs the copy. It arrives as a new
+                                // scene id through replication, so there is nothing to build
+                                // locally - doing so was an orphan world that never ticked.
                                 auto& editor = App::mod<Editor>();
-                                auto play_scene_id = editor.scene_manager.new_play_scene(e.scene_id);
-                                auto copy_scene = editor.scene_manager.get_scene(play_scene_id);
-                                self.add_new_play_scene(copy_scene);
+                                const auto server_id = editor.server_scene_id(e.scene_id);
+                                App::send_rpc(
+                                  "scene.play",
+                                  std::array{RPCParameter{.value = static_cast<i64>(server_id)}}
+                                );
                               })
                               .value_or(0);
   self.scene_stop_handler =
     event_system
       .subscribe<Editor::SceneStopEvent>([&self](const Editor::SceneStopEvent& e) {
+        // The play scene lives on the server; stopping is its call. Guarded on is_playing() - a
+        // SceneStopEvent is raised for scenes that were never playing, and stopping one of those
+        // destroyed the authored world.
+        auto& editor = App::mod<Editor>();
+        const auto stopping = editor.scene_manager.try_get_scene(e.scene_id);
+        if (stopping && stopping->is_playing()) {
+          if (const auto server_id = editor.server_scene_id(e.scene_id); server_id != ~0_u64) {
+            App::send_rpc("scene.stop", std::array{RPCParameter{.value = static_cast<i64>(server_id)}});
+
+            // Same in-flight problem closing a scene had: snapshots for this copy are already on
+            // the wire, and the first one back looked like a new scene and reopened the tab - which
+            // is why stopping only took on the second click.
+            editor.closed_scenes.emplace(server_id);
+            editor.replica_scenes.erase(server_id);
+          }
+        }
+
         auto should_stop_and_remove = [e, &self](const std::unique_ptr<ViewportPanel>& panel) {
           if (!panel) {
             return true;
@@ -230,17 +253,10 @@ void MainViewportPanel::update(this MainViewportPanel& self, const Timestep& tim
       }
     }
 
-    // Views and play state are per panel, so they are stated here; the tick itself is not. It used
-    // to live in this loop, which meant a scene simulated only while a panel drew it - and twice
-    // per frame if two panels showed the same one.
+    // Only the view request. Gating the gameplay phases used to happen here too, on the replica -
+    // which never ticks, so it decided nothing. Play state lives on the server now.
     if (panel_scene) {
       panel->publish_view_request();
-
-      if (panel_scene->is_playing()) {
-        panel_scene->get_scene()->enable_all_phases();
-      } else {
-        panel_scene->get_scene()->disable_phases({flecs::PreUpdate, flecs::OnUpdate});
-      }
     }
   }
 
@@ -262,8 +278,20 @@ void MainViewportPanel::update(this MainViewportPanel& self, const Timestep& tim
     }
   }
 
+  // A closed tab is a closed scene. Dropping only the local replica left the server still
+  // replicating it, and the next snapshot simply reopened the tab.
   std::erase_if(self.viewport_panels, [](const std::unique_ptr<ViewportPanel>& ptr) {
-    return ptr == nullptr || !ptr->visible;
+    if (ptr != nullptr && ptr->visible) {
+      return false;
+    }
+
+    if (ptr != nullptr) {
+      if (auto* editor_scene = ptr->get_scene()) {
+        App::mod<Editor>().close_replica_scene(editor_scene->get_id());
+      }
+    }
+
+    return true;
   });
 }
 

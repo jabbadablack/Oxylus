@@ -11,13 +11,12 @@
 #include "Core/EventSystem.hpp"
 #include "Editor.hpp"
 #include "Memory/Stack.hpp"
+#include "Networking/NetPacket.hpp"
 #include "Scene/ComponentBlob.hpp"
 #include "Scene/EntitySerializer.hpp"
-#include "Server/ServerCommand.hpp"
 #include "UI/PayloadData.hpp"
 #include "UI/UI.hpp"
 #include "Utils/EditorTheme.hpp"
-#include "Utils/ServerCommandRecord.hpp"
 
 namespace ox {
 struct EntityInspector : IEntitySerializer {
@@ -587,10 +586,9 @@ void InspectorPanel::draw_components(this InspectorPanel& self, flecs::entity en
     ImGui::SetKeyboardFocusHere();
   UI::push_frame_style();
   if (ImGui::InputText("##Tag", &new_name, ImGuiInputTextFlags_EnterReturnsTrue)) {
-    App::send_command(
-      ServerCommand{
-        .payload = CmdRenameEntity{.entity = static_cast<EntityHandle>(entity.id()), .name = new_name},
-      }
+    App::send_rpc(
+      "entity.rename",
+      std::array{RPCParameter{.value = static_cast<i64>(entity.id())}, RPCParameter{.value = new_name}}
     );
   }
   UI::pop_frame_style();
@@ -697,17 +695,27 @@ void InspectorPanel::draw_components(this InspectorPanel& self, flecs::entity en
 
         auto after_blob = std::vector<u8>{};
         if (have_before && write_component_blob(entity, fid, after_blob)) {
-          const auto handle = static_cast<EntityHandle>(entity.id());
-          undo_redo_system->execute_command<ServerCommandRecord>(
-            App::mod<Editor>().get_selected_scene(),
-            ServerCommand{
-              .payload = CmdSetComponent{.entity = handle, .state = ComponentState{.id = fid, .buffer = after_blob}},
-            },
-            ServerCommand{
-              .payload = CmdSetComponent{.entity = handle, .state = ComponentState{.id = fid, .buffer = before_blob}},
-            },
-            std::string(ty.name().c_str()),
-            fmt::format("component:{}:{}", entity.id(), fid.raw_id())
+          // Forward and inverse are the same proc with different bytes, so a LambdaCommand
+          // carries the pair - no command type needed.
+          const auto handle = static_cast<i64>(entity.id());
+          const auto component = static_cast<i64>(fid.raw_id());
+          auto set_component = [handle, component](std::vector<u8> blob) {
+            return [handle, component, blob = std::move(blob)] {
+              App::send_rpc(
+                "entity.component",
+                std::array{
+                  RPCParameter{.value = handle},
+                  RPCParameter{.value = component},
+                  RPCParameter{.value = blob},
+                }
+              );
+            };
+          };
+
+          undo_redo_system->execute_command<LambdaCommand>(
+            set_component(after_blob),
+            set_component(before_blob),
+            std::string(ty.name().c_str())
           );
         }
       }

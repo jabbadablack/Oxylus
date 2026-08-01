@@ -93,7 +93,7 @@ TEST_F(NetPacketTest, ClientAckRoundTripsEveryValue) {
 TEST_F(NetPacketTest, SceneSnapshotRoundTrip) {
   const auto state = make_test_state();
 
-  auto sent = ox::NetPacket::scene_snapshot(state, 3, ox::SceneID::Invalid);
+  auto sent = ox::NetPacket::scene_snapshot(state, 3, ox::SceneID::Invalid, false);
   ASSERT_TRUE(sent.has_value());
   OX_DEFER(&) { sent->destroy(); };
 
@@ -136,7 +136,7 @@ TEST_F(NetPacketTest, SceneSnapshotRoundTrip) {
 TEST_F(NetPacketTest, SceneSnapshotRoundTripsEmptyState) {
   const auto state = ox::SceneState{};
 
-  auto sent = ox::NetPacket::scene_snapshot(state, 0, ox::SceneID::Invalid);
+  auto sent = ox::NetPacket::scene_snapshot(state, 0, ox::SceneID::Invalid, false);
   ASSERT_TRUE(sent.has_value());
   OX_DEFER(&) { sent->destroy(); };
 
@@ -153,7 +153,7 @@ TEST_F(NetPacketTest, SceneSnapshotRoundTripsEmptyState) {
 TEST_F(NetPacketTest, SceneSnapshotRoundTripsEverySequence) {
   // Same sentinel trap as the client ack, the sequence wraps around all 8 bits.
   for (auto sequence = 0_u32; sequence <= 255_u32; sequence++) {
-    auto sent = ox::NetPacket::scene_snapshot(ox::SceneState{}, static_cast<u8>(sequence), ox::SceneID::Invalid);
+    auto sent = ox::NetPacket::scene_snapshot(ox::SceneState{}, static_cast<u8>(sequence), ox::SceneID::Invalid, false);
     ASSERT_TRUE(sent.has_value());
     OX_DEFER(&) { sent->destroy(); };
 
@@ -180,7 +180,7 @@ TEST_F(NetPacketTest, SceneSnapshotRoundTripsComponentBufferLargerThanU16) {
   entity.components.emplace(2, ox::ComponentState{.id = 2, .hash = 3, .buffer = buffer});
   state.entities.emplace(1, std::move(entity));
 
-  auto sent = ox::NetPacket::scene_snapshot(state, 1, ox::SceneID::Invalid);
+  auto sent = ox::NetPacket::scene_snapshot(state, 1, ox::SceneID::Invalid, false);
   ASSERT_TRUE(sent.has_value());
   OX_DEFER(&) { sent->destroy(); };
 
@@ -322,7 +322,7 @@ TEST_F(NetPacketTest, FromPacketRejectsEmptyPayload) {
 }
 
 TEST_F(NetPacketTest, TruncatedPayloadIsRejected) {
-  auto sent = ox::NetPacket::scene_snapshot(make_test_state(), 3, ox::SceneID::Invalid);
+  auto sent = ox::NetPacket::scene_snapshot(make_test_state(), 3, ox::SceneID::Invalid, false);
   ASSERT_TRUE(sent.has_value());
   OX_DEFER(&) { sent->destroy(); };
 

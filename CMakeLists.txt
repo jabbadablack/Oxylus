@@ -27,7 +27,7 @@ include(Dependencies)
 
 # The server half first: Oxylus links OxylusServerLib, so its alias has to exist by then.
 add_subdirectory(OxylusServer)
-add_subdirectory(Oxylus)
+add_subdirectory(OxylusClient)
 add_subdirectory(ResourceCompiler)
 
 if(OX_EDITOR)
@@ -36,7 +36,7 @@ endif()
 
 if(OX_TESTS)
   enable_testing()
-  add_subdirectory(Oxylus/tests)
+  add_subdirectory(OxylusClient/tests)
 endif()
 
 if(CMAKE_EXPORT_COMPILE_COMMANDS)

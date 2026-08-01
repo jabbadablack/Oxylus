@@ -19,6 +19,8 @@ enum class NetClientStatus : u32 {
 struct ClientSceneSnapshotEvent {
   u8 sequence;
   SceneID scene_id;
+  // Play state belongs to the server - it is what ticks - so the client is told, not left to guess.
+  bool playing;
   SceneState scene_state;
 };
 

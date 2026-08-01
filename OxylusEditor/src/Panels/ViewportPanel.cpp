@@ -9,16 +9,15 @@
 #include "Core/App.hpp"
 #include "Core/Input.hpp"
 #include "Editor.hpp"
+#include "Networking/NetPacket.hpp"
 #include "Render/Camera.hpp"
 #include "Render/RenderContext.hpp"
 #include "Render/Utils/VukCommon.hpp"
 #include "Scene/Components.hpp"
-#include "Server/ServerCommand.hpp"
 #include "UI/ImGuiRenderer.hpp"
 #include "UI/PayloadData.hpp"
 #include "UI/UI.hpp"
 #include "Utils/OxMath.hpp"
-#include "Utils/ServerCommandRecord.hpp"
 
 namespace ox {
 struct GizmoInfo {
@@ -435,7 +434,11 @@ auto ViewportPanel::drag_drop(this const ViewportPanel& self) -> void {
       const auto path = payload->get_path();
       if (path.extension() == ".gltf" || path.extension() == ".glb") {
         if (auto asset = App::mod<AssetManager>().import_asset(path)) {
-          App::send_command(ServerCommand{.payload = CmdSpawnModel{.model_uuid = asset}});
+          // Importing is a registry operation and stays local - both processes resolve the same
+          // uuid from the same disk. Placing the entity is the server's.
+          auto uuid_bytes = std::array<u8, 16>{};
+          std::ranges::copy(asset.bytes(), uuid_bytes.begin());
+          App::send_rpc("model.spawn", std::array{RPCParameter{.value = uuid_bytes}});
         }
       }
     }
@@ -892,22 +895,31 @@ void ViewportPanel::draw_gizmos(this ViewportPanel& self) {
           after.scale *= delta_scale;
         }
 
-        const auto handle = static_cast<EntityHandle>(selected_entity.id());
-        const auto to_command = [handle](const TransformComponent& t) {
-          return ServerCommand{
-            .payload = CmdSetTransform{
-              .entity = handle,
-              .position = t.position,
-              .rotation = t.rotation,
-              .scale = t.scale,
-            },
+        const auto handle = static_cast<i64>(selected_entity.id());
+        const auto set_transform = [handle](const TransformComponent& t) {
+          return [handle, t] {
+            App::send_rpc(
+              "entity.transform",
+              std::array{
+                RPCParameter{.value = handle},
+                RPCParameter{.value = t.position.x},
+                RPCParameter{.value = t.position.y},
+                RPCParameter{.value = t.position.z},
+                RPCParameter{.value = t.rotation.w},
+                RPCParameter{.value = t.rotation.x},
+                RPCParameter{.value = t.rotation.y},
+                RPCParameter{.value = t.rotation.z},
+                RPCParameter{.value = t.scale.x},
+                RPCParameter{.value = t.scale.y},
+                RPCParameter{.value = t.scale.z},
+              }
+            );
           };
         };
 
-        undo_redo_system->execute_command<ServerCommandRecord>(
-          self.editor_scene->get_scene().get(),
-          to_command(after),
-          to_command(before),
+        undo_redo_system->execute_command<LambdaCommand>(
+          set_transform(after),
+          set_transform(before),
           "gizmo transform",
           fmt::format("gizmo:{}", selected_entity.id())
         );

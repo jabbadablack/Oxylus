@@ -157,7 +157,7 @@ auto NetClient::handle_packet(this NetClient& self, NetPacket& packet) -> void {
       // TODO: Copying the whole scene snapshot...
       auto& es = Server::get_event_system();
       std::ignore = es.emit<ClientSceneSnapshotEvent>(
-        ClientSceneSnapshotEvent(snapshot->sequence, snapshot->scene_id, snapshot->state)
+        ClientSceneSnapshotEvent(snapshot->sequence, snapshot->scene_id, snapshot->playing, snapshot->state)
       );
 
       self.on_scene_snapshot(snapshot->sequence, std::move(snapshot->state));

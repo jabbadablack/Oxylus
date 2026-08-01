@@ -5,7 +5,7 @@
 
 #include "Asset/AssetManager.hpp"
 #include "Core/App.hpp"
-#include "Server/ServerCommand.hpp"
+#include "Networking/NetPacket.hpp"
 #include "UI/AssetManagerViewer.hpp"
 #include "UI/UI.hpp"
 #include "Utils/ImGuiScoped.hpp"
@@ -228,12 +228,11 @@ auto SceneHierarchyViewer::render(const char* id, bool* visible) -> void {
       }
 
       if (dragged_entity_ != flecs::entity::null() && dragged_entity_target_ != flecs::entity::null()) {
-        App::send_command(
-          ServerCommand{
-            .payload = CmdReparentEntity{
-              .entity = static_cast<EntityHandle>(dragged_entity_.id()),
-              .parent = static_cast<EntityHandle>(dragged_entity_target_.id()),
-            }
+        App::send_rpc(
+          "entity.reparent",
+          std::array{
+            RPCParameter{.value = static_cast<i64>(dragged_entity_.id())},
+            RPCParameter{.value = static_cast<i64>(dragged_entity_target_.id())},
           }
         );
         dragged_entity_ = flecs::entity::null();
@@ -321,7 +320,7 @@ auto SceneHierarchyViewer::draw_entity_node(
     if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
       // The server clones and picks the free name; the result arrives by replication. The
       // selection is not moved here because the new entity does not exist yet on this side.
-      App::send_command(ServerCommand{.payload = CmdCloneEntity{.entity = static_cast<EntityHandle>(entity.id())}});
+      App::send_rpc("entity.clone", std::array{RPCParameter{.value = static_cast<i64>(entity.id())}});
       selected_script_ = nullptr;
     }
     if (ImGui::MenuItem("Delete", "Del"))
@@ -371,13 +370,9 @@ auto SceneHierarchyViewer::draw_entity_node(
 
     std::string name{entity.name()};
     if (ImGui::InputText("##Tag", &name)) {
-      App::send_command(
-        ServerCommand{
-          .payload = CmdRenameEntity{
-            .entity = static_cast<EntityHandle>(entity.id()),
-            .name = name,
-          }
-        }
+      App::send_rpc(
+        "entity.rename",
+        std::array{RPCParameter{.value = static_cast<i64>(entity.id())}, RPCParameter{.value = name}}
       );
     }
 
@@ -409,12 +404,11 @@ auto SceneHierarchyViewer::draw_entity_node(
     ImGui::Text("  %s", entity.enabled() ? visibility_icon_on : visibility_icon_off);
 
     if (ImGui::IsItemHovered() && (ImGui::IsMouseDragging(0) || ImGui::IsItemClicked())) {
-      App::send_command(
-        ServerCommand{
-          .payload = CmdSetEntityEnabled{
-            .entity = static_cast<EntityHandle>(entity.id()),
-            .enabled = !entity.enabled(),
-          }
+      App::send_rpc(
+        "entity.enable",
+        std::array{
+          RPCParameter{.value = static_cast<i64>(entity.id())},
+          RPCParameter{.value = static_cast<i64>(!entity.enabled() ? 1 : 0)},
         }
       );
     }
@@ -485,23 +479,38 @@ auto SceneHierarchyViewer::draw_entities_context_menu() -> void {
     // Every one of these is a request now. The entity appears when the server replicates it
     // back, so none of them can select the result immediately.
     if (ImGui::MenuItem("New Entity")) {
-      App::send_command(ServerCommand{.payload = CmdCreateEntity{.name = "entity", .archetype = "entity"}});
+      App::send_rpc(
+        "entity.create",
+        std::array{RPCParameter{.value = std::string("entity")}, RPCParameter{.value = std::string("entity")}}
+      );
     }
 
     if (ImGui::MenuItem("Sprite")) {
-      App::send_command(ServerCommand{.payload = CmdCreateEntity{.name = "sprite", .archetype = "sprite"}});
+      App::send_rpc(
+        "entity.create",
+        std::array{RPCParameter{.value = std::string("sprite")}, RPCParameter{.value = std::string("sprite")}}
+      );
     }
 
     if (ImGui::MenuItem("Camera")) {
-      App::send_command(ServerCommand{.payload = CmdCreateEntity{.name = "camera", .archetype = "camera"}});
+      App::send_rpc(
+        "entity.create",
+        std::array{RPCParameter{.value = std::string("camera")}, RPCParameter{.value = std::string("camera")}}
+      );
     }
 
     if (ImGui::BeginMenu("Light")) {
       if (ImGui::MenuItem("Light")) {
-        App::send_command(ServerCommand{.payload = CmdCreateEntity{.name = "light", .archetype = "light"}});
+        App::send_rpc(
+          "entity.create",
+          std::array{RPCParameter{.value = std::string("light")}, RPCParameter{.value = std::string("light")}}
+        );
       }
       if (ImGui::MenuItem("Sun")) {
-        App::send_command(ServerCommand{.payload = CmdCreateEntity{.name = "sun", .archetype = "sun"}});
+        App::send_rpc(
+          "entity.create",
+          std::array{RPCParameter{.value = std::string("sun")}, RPCParameter{.value = std::string("sun")}}
+        );
       }
       ImGui::EndMenu();
     }

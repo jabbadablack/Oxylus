@@ -37,6 +37,9 @@ struct NetSceneSnapshotPacket {
   // Which scene this state belongs to. The editor holds several open at once, so a snapshot
   // without one would be applied to whichever replica happened to be first.
   SceneID scene_id = SceneID::Invalid;
+  // Whether this scene is running gameplay. Play state belongs to the server - it is what
+  // ticks - so the client has to be told rather than decide.
+  bool playing = false;
   SceneState state = {};
 };
 
@@ -87,7 +90,7 @@ struct NetPacket {
   ENetPacket* inner = nullptr;
 
   static auto handshake(const NetHandshakePacket& info) -> option<NetPacket>;
-  static auto scene_snapshot(const SceneState& state, u8 sequence, SceneID scene_id) -> option<NetPacket>;
+  static auto scene_snapshot(const SceneState& state, u8 sequence, SceneID scene_id, bool playing) -> option<NetPacket>;
   static auto client_ack(const NetClientAckPacket& info) -> option<NetPacket>;
   static auto rpc(std::string_view proc, std::span<const RPCParameter> params) -> option<NetPacket>;
 

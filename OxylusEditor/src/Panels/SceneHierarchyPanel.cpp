@@ -8,9 +8,8 @@
 
 #include "Core/App.hpp"
 #include "Editor.hpp"
+#include "Networking/NetPacket.hpp"
 #include "Render/DebugRenderer.hpp"
-#include "Server/ServerCommand.hpp"
-#include "Utils/ServerCommandRecord.hpp"
 
 namespace ox {
 SceneHierarchyPanel::SceneHierarchyPanel() : EditorPanelState("Scene Hierarchy", ICON_MDI_VIEW_LIST, true) {
@@ -63,10 +62,9 @@ auto SceneHierarchyPanel::on_update(this SceneHierarchyPanel& self) -> void {
     }
 
     if (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) && ImGui::IsKeyPressed(ImGuiKey_D)) {
-      App::send_command(
-        ServerCommand{
-          .payload = CmdCloneEntity{.entity = static_cast<EntityHandle>(self.viewer.selected_entity_.get().id())},
-        }
+      App::send_rpc(
+        "entity.clone",
+        std::array{RPCParameter{.value = static_cast<i64>(self.viewer.selected_entity_.get().id())}}
       );
     }
     if (
@@ -98,15 +96,14 @@ auto SceneHierarchyPanel::on_update(this SceneHierarchyPanel& self) -> void {
     Scene::entity_to_json(writer, entity);
 
     const auto parent = entity.parent();
-    undo_redo_system->execute_command<ServerCommandRecord>(
-      scene,
-      ServerCommand{.payload = CmdDestroyEntity{.entity = static_cast<EntityHandle>(entity.id())}},
-      ServerCommand{
-        .payload =
-          CmdRestoreEntity{
-            .parent = parent != flecs::entity::null() ? static_cast<EntityHandle>(parent.id()) : EntityHandle::Invalid,
-            .serialized_json = writer.stream.str(),
-          },
+    const auto handle = static_cast<i64>(entity.id());
+    const auto parent_handle = static_cast<i64>(parent != flecs::entity::null() ? parent.id() : 0);
+    auto json = writer.stream.str();
+
+    undo_redo_system->execute_command<LambdaCommand>(
+      [handle] { App::send_rpc("entity.destroy", std::array{RPCParameter{.value = handle}}); },
+      [parent_handle, json = std::move(json)] {
+        App::send_rpc("entity.restore", std::array{RPCParameter{.value = parent_handle}, RPCParameter{.value = json}});
       },
       command_id
     );
