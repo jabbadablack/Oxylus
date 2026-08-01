@@ -1,13 +1,8 @@
 #include "Sim/FrameSnapshot.hpp"
 
-#include <algorithm>
-
 namespace ox {
 auto FrameSnapshot::clear(this FrameSnapshot& self) -> void {
   ZoneScoped;
-
-  self.frame_id = FrameID::Invalid;
-  self.delta_time = 0.f;
 
   self.flags = {};
   self.atmosphere = {};
@@ -34,13 +29,5 @@ auto FrameSnapshot::clear(this FrameSnapshot& self) -> void {
   self.dirty_transform_ids.resize(0);
   self.mesh_instances.resize(0);
   self.dirty_mesh_instance_slots.resize(0);
-}
-
-auto FrameSnapshot::find_view(this const FrameSnapshot& self, const SimViewID view_id) -> const ViewSnapshot* {
-  const auto it = std::ranges::find_if(self.views, [view_id](const ViewSnapshot& view) {
-    return view.view_id == view_id;
-  });
-
-  return it == self.views.end() ? nullptr : &*it;
 }
 } // namespace ox

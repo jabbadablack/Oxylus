@@ -17,6 +17,7 @@
 #include "UI/PayloadData.hpp"
 #include "UI/UI.hpp"
 #include "Utils/OxMath.hpp"
+#include "Utils/SimCommandRecord.hpp"
 
 namespace ox {
 struct GizmoInfo {
@@ -876,24 +877,38 @@ void ViewportPanel::draw_gizmos(this ViewportPanel& self) {
                                          : glm::mat4(1.0f);
 
         const glm::mat4 inv_parent = glm::inverse(parent_world);
+
+        // Compute against a copy: the edit reaches the world as a command, so the editor never
+        // writes component memory directly. `before` is captured first so the inverse is exact.
+        const auto before = *tc;
+        auto after = before;
         if (self.gizmo_type == ImGuizmo::TRANSLATE) {
-          tc->position += glm::vec3(inv_parent * glm::vec4(delta_translation, 0.0f));
+          after.position += glm::vec3(inv_parent * glm::vec4(delta_translation, 0.0f));
         } else if (self.gizmo_type == ImGuizmo::ROTATE) {
-          tc->rotation = glm::quat_cast(inv_parent) * delta_rotation * tc->rotation;
+          after.rotation = glm::quat_cast(inv_parent) * delta_rotation * after.rotation;
         } else if (self.gizmo_type == ImGuizmo::SCALE) {
-          tc->scale *= delta_scale;
+          after.scale *= delta_scale;
         }
 
-        auto old_tc = *tc;
-        undo_redo_system->execute_command<ComponentChangeCommand<TransformComponent>>(
-          selected_entity,
-          tc,
-          old_tc,
-          *tc,
-          "gizmo transform"
-        );
+        const auto handle = static_cast<EntityHandle>(selected_entity.id());
+        const auto to_command = [handle](const TransformComponent& t) {
+          return SimCommand{
+            .payload = CmdSetTransform{
+              .entity = handle,
+              .position = t.position,
+              .rotation = t.rotation,
+              .scale = t.scale,
+            },
+          };
+        };
 
-        selected_entity.modified<TransformComponent>();
+        undo_redo_system->execute_command<SimCommandRecord>(
+          self.editor_scene->get_scene().get(),
+          to_command(after),
+          to_command(before),
+          "gizmo transform",
+          fmt::format("gizmo:{}", selected_entity.id())
+        );
       }
     }
   }

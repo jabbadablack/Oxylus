@@ -10,6 +10,7 @@
 #include "Core/UUID.hpp"
 #include "Scene/Scene.hpp"
 #include "Utils/JsonWriter.hpp"
+#include "Utils/Log.hpp"
 
 namespace ox {
 class Command {
@@ -72,146 +73,7 @@ private:
   std::string id_;
 };
 
-template <typename T>
-class PropertyChangeCommand : public Command {
-public:
-  PropertyChangeCommand(T* target, T old_val, T new_val, std::string id)
-      : target_(target),
-        old_value_(old_val),
-        new_value_(new_val),
-        id_(id) {}
-
-  auto execute() -> void override { *target_ = new_value_; }
-  auto undo() -> void override { *target_ = old_value_; }
-
-  auto get_id() const -> std::string_view override { return id_; }
-
-  auto can_merge(const Command& other) const -> bool override {
-    if (auto* other_cmd = dynamic_cast<const PropertyChangeCommand<T>*>(&other)) {
-      return target_ == other_cmd->target_ && get_id() == other_cmd->get_id();
-    }
-    return false;
-  }
-
-  auto merge(std::unique_ptr<Command> other) -> std::unique_ptr<Command> override {
-    if (auto other_cmd = dynamic_cast<PropertyChangeCommand<T>*>(other.get())) {
-      auto merged = std::make_unique<PropertyChangeCommand<T>>(target_, old_value_, other_cmd->new_value_, id_);
-      return merged;
-    }
-    return nullptr;
-  }
-
-private:
-  T* target_;
-  T old_value_;
-  T new_value_;
-  std::string id_;
-};
-
-// Difference between this and PropertyChangeCommand is, this calls modified on given entity with the given component
-template <typename T>
-class ComponentChangeCommand : public Command {
-public:
-  ComponentChangeCommand(flecs::entity e, T* target, T old_val, T new_val, std::string id)
-      : entity_(e),
-        target_(target),
-        old_value_(old_val),
-        new_value_(new_val),
-        id_(id) {}
-
-  auto execute() -> void override {
-    *target_ = new_value_;
-    if (entity_.is_valid()) {
-      entity_.modified<T>();
-    }
-  }
-  auto undo() -> void override {
-    *target_ = old_value_;
-    if (entity_.is_valid()) {
-      entity_.modified<T>();
-    }
-  }
-
-  auto get_id() const -> std::string_view override { return id_; }
-
-  auto can_merge(const Command& other) const -> bool override {
-    if (auto* other_cmd = dynamic_cast<const ComponentChangeCommand<T>*>(&other)) {
-      return target_ == other_cmd->target_ && get_id() == other_cmd->get_id();
-    }
-    return false;
-  }
-
-  auto merge(std::unique_ptr<Command> other) -> std::unique_ptr<Command> override {
-    if (auto other_cmd = dynamic_cast<ComponentChangeCommand<T>*>(other.get())) {
-      auto
-        merged = std::make_unique<ComponentChangeCommand<T>>(entity_, target_, old_value_, other_cmd->new_value_, id_);
-      return merged;
-    }
-    return nullptr;
-  }
-
-private:
-  flecs::entity entity_;
-  T* target_;
-  T old_value_;
-  T new_value_;
-  std::string id_;
-};
-
-class EntityDeleteCommand : public Command {
-public:
-  EntityDeleteCommand(Scene* scene, flecs::entity entity, std::string entity_name, std::string id)
-      : scene_(scene),
-        entity_(entity),
-        entity_name_(entity_name),
-        id_(id) {}
-
-  auto serialize_entity(flecs::entity entity) -> void {
-    JsonWriter writer{};
-    writer.begin_obj();
-    writer["entities"].begin_array();
-    Scene::entity_to_json(writer, entity);
-    writer.end_array();
-    writer.end_obj();
-    serialized_entity_ = writer.stream.str();
-  }
-
-  auto execute() -> void override {
-    serialize_entity(entity_);
-    entity_.destruct();
-  }
-
-  auto undo() -> void override {
-    auto content = simdjson::padded_string(serialized_entity_);
-    simdjson::ondemand::parser parser;
-    auto doc = parser.iterate(content);
-    auto entities_array = doc["entities"];
-    std::vector<UUID> requested_assets = {};
-    for (auto entity_json : entities_array.get_array()) {
-      entity_ = Scene::json_to_entity(
-        *scene_, //
-        flecs::entity::null(),
-        entity_json.value_unsafe(),
-        requested_assets
-      );
-    }
-  }
-
-  auto get_id() const -> std::string_view override { return id_; }
-  auto get_entity() const -> flecs::entity { return entity_; }
-
-  auto can_merge(const Command& other) const -> bool override { return false; }
-
-  auto merge(std::unique_ptr<Command> other) -> std::unique_ptr<Command> override { return nullptr; }
-
-private:
-  Scene* scene_;
-  flecs::entity entity_;
-  std::string serialized_entity_;
-  std::string entity_name_;
-  std::string id_;
-};
-
+// Copies a component between entities, calling modified() on the destination.
 class ComponentCopyCommand : public Command {
 public:
   ComponentCopyCommand(flecs::entity src, flecs::entity dst, flecs::id_t comp_id, std::string id)
@@ -319,6 +181,11 @@ public:
       auto now = std::chrono::steady_clock::now();
       if (now - self.last_command_time_ < self.merge_timeout_ && self.undo_stack_.back()->can_merge(*command)) {
         if (auto merged = self.undo_stack_.back()->merge(std::move(command))) {
+          // The merged command still has to take effect. This used to be skipped, which was
+          // invisible only because every command type mutated the world eagerly and was recorded
+          // afterwards. Commands that carry their own effect - anything issued to the simulation -
+          // would otherwise apply on the first frame of a drag and then silently stop.
+          merged->execute();
           self.undo_stack_.back() = std::move(merged);
           self.last_command_time_ = now;
           return self;

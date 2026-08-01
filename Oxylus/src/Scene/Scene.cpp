@@ -1147,7 +1147,6 @@ auto Scene::runtime_update(this Scene& self, const Timestep& delta_time) -> void
   // Runs whether or not anything is drawing: the extract is simulation output, and a headless tick
   // still produces it.
   self.extractor.extract(self, self.view_requests, self.frame_snapshot);
-  self.frame_snapshot.delta_time = static_cast<f32>(delta_time.get_seconds());
 
   // Motion vectors: this frame's world becomes next frame's previous. Done after the extract, so
   // the snapshot still carries both.

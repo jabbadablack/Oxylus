@@ -10,7 +10,7 @@
 #include "Render/RenderContext.hpp"
 #include "Render/Renderer.hpp"
 #include "Render/Window.hpp"
-#include "Scripting/LuaClientBindings.hpp"
+#include "Scripting/LuaManager.hpp"
 #include "UI/ImGuiRenderer.hpp"
 #include "Utils/Profiler.hpp"
 

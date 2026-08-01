@@ -12,7 +12,6 @@
 #include "Asset/Texture.hpp"
 #include "Core/App.hpp"
 #include "Memory/Stack.hpp"
-#include "Render/ModelGPU.hpp"
 
 template <>
 struct fastgltf::ElementTraits<glm::vec4> : fastgltf::ElementTraitsBase<glm::vec4, AccessorType::Vec4, float> {};
@@ -22,6 +21,14 @@ template <>
 struct fastgltf::ElementTraits<glm::vec2> : fastgltf::ElementTraitsBase<glm::vec2, AccessorType::Vec2, float> {};
 
 namespace ox {
+// Device-side residency for a model: the buffers whose addresses are baked into its GPU::Mesh
+// entries. Nothing reads it back - it exists so the allocations outlive the model. Model holds it
+// as an opaque shared_ptr<void>, so the deleter is captured here and the simulation can destroy one
+// without naming the type.
+struct ModelGPU {
+  std::vector<vuk::Unique<vuk::Buffer>> mesh_buffers = {};
+};
+
 auto get_default_gltf_extensions() -> fastgltf::Extensions {
   auto extensions = fastgltf::Extensions::None;
   extensions |= fastgltf::Extensions::KHR_mesh_quantization;

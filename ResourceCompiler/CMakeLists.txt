@@ -18,10 +18,12 @@ target_include_directories(ResourceCompiler
 
 target_compile_definitions(ResourceCompiler PRIVATE OXRC_EXPORTS=1)
 
+# The shader compiler is a headless tool: it reads TOML, drives slang and writes .oxpack. Linking
+# the simulation half rather than ox::Oxylus keeps vuk, SDL, ImGui and RmlUi out of it entirely.
 target_link_libraries(ResourceCompiler
   PRIVATE
     ox_project_options
-    ox::Oxylus
+    ox::OxylusSim
     slang::slang
     SPIRV-Tools-opt
     ox_zpp_bits)
@@ -45,7 +47,7 @@ target_link_libraries(rcli
   PRIVATE
     ox_project_options
     ox::ResourceCompiler
-    ox::Oxylus
+    ox::OxylusSim
     fmt::fmt
     tomlplusplus::tomlplusplus
     slang::slang)

@@ -113,13 +113,13 @@ TEST_F(SceneExtractorTest, ClientSuppliedViewIsPassedThroughUntouched) {
   const auto& snapshot = extract();
 
   ASSERT_EQ(snapshot.views.size(), 1_sz);
-  const auto* view = snapshot.find_view(static_cast<SimViewID>(3));
-  ASSERT_NE(view, nullptr);
-  EXPECT_EQ(view->source, SimCameraSource::ClientSupplied);
-  EXPECT_EQ(view->viewport_size, glm::uvec2(800, 600));
-  EXPECT_FLOAT_EQ(view->near_clip, 0.25f);
-  EXPECT_FLOAT_EQ(view->far_clip, 500.f);
-  EXPECT_FLOAT_EQ(view->fov, 42.f);
+  const auto& view = snapshot.views.front();
+  EXPECT_EQ(view.view_id, static_cast<SimViewID>(3));
+  EXPECT_EQ(view.source, SimCameraSource::ClientSupplied);
+  EXPECT_EQ(view.viewport_size, glm::uvec2(800, 600));
+  EXPECT_FLOAT_EQ(view.camera.near_clip, 0.25f);
+  EXPECT_FLOAT_EQ(view.camera.far_clip, 500.f);
+  EXPECT_FLOAT_EQ(view.camera.fov, 42.f);
 }
 
 TEST_F(SceneExtractorTest, SimEntityViewResolvesAgainstTheSceneCamera) {
@@ -139,8 +139,8 @@ TEST_F(SceneExtractorTest, SimEntityViewResolvesAgainstTheSceneCamera) {
   const auto& snapshot = extract();
 
   ASSERT_EQ(snapshot.views.size(), 1_sz);
-  EXPECT_FLOAT_EQ(snapshot.views[0].fov, 33.f);
-  EXPECT_FLOAT_EQ(snapshot.views[0].far_clip, 123.f);
+  EXPECT_FLOAT_EQ(snapshot.views[0].camera.fov, 33.f);
+  EXPECT_FLOAT_EQ(snapshot.views[0].camera.far_clip, 123.f);
 }
 
 TEST_F(SceneExtractorTest, PostProcessComponentsSetTheirFlags) {

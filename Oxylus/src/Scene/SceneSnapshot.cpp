@@ -2,6 +2,7 @@
 
 #include <fmt/base.h>
 
+#include "Scene/ComponentBlob.hpp"
 #include "Scene/Components.hpp"
 
 namespace ox {
@@ -56,8 +57,10 @@ auto SceneSnapshotBuilder::delta(this SceneSnapshotBuilder& self) -> SceneState 
       // check for changed components
       for (const auto& [component_id, component_state] : entity_state.components) {
         auto prev_component_it = last_entity_state.components.find(component_id);
-        if (prev_component_it == last_entity_state.components.end() ||
-            prev_component_it->second.hash != component_state.hash) {
+        if (
+          prev_component_it == last_entity_state.components.end() ||
+          prev_component_it->second.hash != component_state.hash
+        ) {
           delta_entity.components.emplace(component_id, component_state);
           changed = true; // we've inserted new/changed component
         }
@@ -109,10 +112,15 @@ auto SceneSnapshotBuilder::take_snapshot(flecs::world& world, SceneState& state)
           auto entity_id = entity.id();
           auto component_state = ComponentState{.id = component_id, .hash = ~0_u64};
           if (is_component) {
-            auto* component_data = entity.get(component_id);
-            component_state.hash = ankerl::unordered_dense::detail::wyhash::hash(component_data, component_info.size);
-            component_state.buffer.resize(component_info.size);
-            std::memcpy(component_state.buffer.data(), component_data, component_info.size);
+            // Through the reflection, not a memcpy of the raw bytes: several components own heap
+            // storage or raw engine pointers, and the reflection binds only the authoritative
+            // fields. The hash is taken over the encoded form so it tracks what actually shipped.
+            if (write_component_blob(entity, component_id, component_state.buffer)) {
+              component_state.hash = ankerl::unordered_dense::detail::wyhash::hash(
+                component_state.buffer.data(),
+                component_state.buffer.size()
+              );
+            }
           }
 
           auto& entity_state = state.entities[entity_id];

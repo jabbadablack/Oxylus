@@ -7,6 +7,11 @@
 #include "Scripting/LuaBinding.hpp"
 
 namespace ox {
+// Registers the Lua bindings that name presentation types - App modules, Input, the debug renderer,
+// the renderer, RmlUi, UI - into the simulation's LuaManager. LuaManager cannot reference any of
+// them, so the client hands them over from App::init once its modules exist.
+auto bind_client_lua_bindings() -> void;
+
 class LuaManager {
 public:
   constexpr static auto MODULE_NAME = "LuaManager";

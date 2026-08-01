@@ -1,5 +1,3 @@
-#include "Scripting/LuaClientBindings.hpp"
-
 #include "Scripting/LuaManager.hpp"
 #include "Sim/SimHost.hpp"
 

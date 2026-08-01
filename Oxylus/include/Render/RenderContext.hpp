@@ -8,7 +8,7 @@
 #include <vuk/runtime/vk/VkRuntime.hpp>
 
 #include "Asset/AssetFile.hpp"
-#include "Asset/SamplerDescription.hpp"
+#include "Asset/TextureLoadInfo.hpp"
 #include "Core/Base.hpp"
 #include "Core/Option.hpp"
 #include "Memory/SlotMap.hpp"

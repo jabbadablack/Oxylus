@@ -112,7 +112,15 @@ auto JobManager::worker(this JobManager& self, u32 id) -> void {
     lock.unlock();
 
     job->task();
-    self.job_count.fetch_sub(1);
+
+    if (self.job_count.fetch_sub(1) == 1) {
+      // Take and drop the lock before signalling, so a waiter cannot be between its predicate check
+      // and going to sleep when the notify lands.
+      {
+        auto idle_lock = std::unique_lock(self.mutex);
+      }
+      self.idle_condition_var.notify_all();
+    }
 
     for (auto& barrier : job->barriers) {
       if (--barrier->counter == 0) {
@@ -142,6 +150,10 @@ auto JobManager::submit(this JobManager& self, Arc<Job> job, bool prioritize) ->
     t.mark_completed(job_ptr);
   };
 
+  // Counted before the job becomes visible to a worker. The other order let a worker finish and
+  // decrement first, briefly underflowing the count.
+  self.job_count.fetch_add(1);
+
   {
     auto lock = std::unique_lock(self.mutex);
     if (prioritize) {
@@ -151,14 +163,15 @@ auto JobManager::submit(this JobManager& self, Arc<Job> job, bool prioritize) ->
     }
   }
 
-  self.job_count.fetch_add(1);
   self.condition_var.notify_all();
 }
 
 auto JobManager::wait(this JobManager& self) -> void {
   ZoneScoped;
 
-  while (self.job_count.load(std::memory_order_relaxed) != 0)
-    ;
+  // Was a raw spin on an atomic, which burned a core for the whole wait. Note this still blocks
+  // forever if there are no workers to drain the queue - init() has to have run.
+  auto lock = std::unique_lock(self.mutex);
+  self.idle_condition_var.wait(lock, [&self] { return self.job_count.load(std::memory_order_acquire) == 0; });
 }
 } // namespace ox

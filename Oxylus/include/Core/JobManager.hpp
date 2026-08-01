@@ -148,8 +148,19 @@ public:
   auto submit(this JobManager& self, Arc<Job> job, bool prioritize = false) -> void;
   auto wait(this JobManager& self) -> void;
 
-  auto push_job_name(this JobManager& self, const std::string& name) { self.job_name_stack.push(name); }
-  auto pop_job_name(this JobManager& self) { self.job_name_stack.pop(); }
+  // Locked: submit() reads this stack under a shared_lock, so mutating it unlocked was a data
+  // race. It stays shared across threads rather than thread_local to keep the existing behaviour.
+  auto push_job_name(this JobManager& self, const std::string& name) -> void {
+    auto lock = std::unique_lock(self.mutex);
+    self.job_name_stack.push(name);
+  }
+
+  auto pop_job_name(this JobManager& self) -> void {
+    auto lock = std::unique_lock(self.mutex);
+    if (!self.job_name_stack.empty()) {
+      self.job_name_stack.pop();
+    }
+  }
 
   auto get_tracker(this JobManager& self) -> JobTracker& { return self.tracker; }
 
@@ -248,6 +259,8 @@ private:
   std::deque<Arc<Job>> jobs = {};
   std::shared_mutex mutex = {};
   std::condition_variable_any condition_var = {};
+  // Signalled when the last outstanding job completes, so wait() can sleep instead of spin.
+  std::condition_variable_any idle_condition_var = {};
   std::atomic<u64> job_count = {};
   bool running = true;
 };

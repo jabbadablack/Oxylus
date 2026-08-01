@@ -12,7 +12,7 @@
 #include <simdjson.h>
 
 #include "Asset/Fwd.hpp"
-#include "Asset/MeshInstance.hpp"
+#include "Asset/Model.hpp"
 #include "Core/UUID.hpp"
 #include "Memory/SlotMap.hpp"
 #include "Physics/PhysicsDebugRenderer.hpp"

@@ -168,17 +168,11 @@ auto SceneExtractor::extract_views(
       .viewport_size = request.viewport_size,
       .viewport_offset = request.viewport_offset,
       .camera = request.camera,
-      .near_clip = request.camera.near_clip,
-      .far_clip = request.camera.far_clip,
-      .fov = request.camera.fov,
     };
 
     if (request.source == SimCameraSource::SimEntity) {
       if (auto camera = resolve(request.camera_entity)) {
         view.camera = camera_data_from_component(*camera);
-        view.near_clip = camera->near_clip;
-        view.far_clip = camera->far_clip;
-        view.fov = camera->fov;
       }
     }
 
@@ -194,9 +188,6 @@ auto SceneExtractor::extract_views(
         .source = SimCameraSource::SimEntity,
         .camera_entity = fallback_entity,
         .camera = camera_data_from_component(*fallback_camera),
-        .near_clip = fallback_camera->near_clip,
-        .far_clip = fallback_camera->far_clip,
-        .fov = fallback_camera->fov,
       }
     );
   }

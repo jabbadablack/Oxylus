@@ -26,6 +26,12 @@ struct IEntitySerializer {
   virtual auto on_opaque_value(
     std::string_view name, flecs::entity_t field_type, void* field_ptr, flecs::entity_t opaque_type, const void* value
   ) -> void {};
+
+  // Writers stream an opaque field's current value out through on_opaque_value. Readers need the
+  // opposite - assign into the field - which the serializer callback cannot express, so they opt in
+  // here and get handed the field directly.
+  virtual auto assigns_opaque() const -> bool { return false; }
+  virtual auto on_opaque_field(std::string_view name, flecs::entity_t field_type, void* field_ptr) -> void {};
 };
 
 struct JsonEntitySerializer : IEntitySerializer {

@@ -3,7 +3,7 @@
 #include <miniaudio.h>
 
 #include "Audio/AudioEngine.hpp"
-#include "Core/App.hpp"
+#include "Sim/SimHost.hpp"
 
 namespace ox {
 AudioSource::~AudioSource() { unload(); }
@@ -12,7 +12,7 @@ auto AudioSource::load(const std::filesystem::path& path) -> bool {
   ZoneScoped;
 
   _sound = new ma_sound;
-  auto* engine = App::mod<AudioEngine>().get_engine();
+  auto* engine = SimHost::mod<AudioEngine>().get_engine();
   auto path_str = path.string();
   const ma_result result =
     ma_sound_init_from_file(engine, path_str.c_str(), MA_SOUND_FLAG_NO_SPATIALIZATION, nullptr, nullptr, _sound);

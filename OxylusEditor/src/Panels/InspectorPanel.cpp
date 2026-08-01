@@ -11,10 +11,12 @@
 #include "Core/EventSystem.hpp"
 #include "Editor.hpp"
 #include "Memory/Stack.hpp"
+#include "Scene/ComponentBlob.hpp"
 #include "Scene/EntitySerializer.hpp"
 #include "UI/PayloadData.hpp"
 #include "UI/UI.hpp"
 #include "Utils/EditorTheme.hpp"
+#include "Utils/SimCommandRecord.hpp"
 
 namespace ox {
 struct EntityInspector : IEntitySerializer {
@@ -35,87 +37,72 @@ struct EntityInspector : IEntitySerializer {
         [&](bool* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system //
-              .set_merge_enabled(false)
-              .execute_command<PropertyChangeCommand<bool>>(v, old_v, *v, std::string(name))
-              .set_merge_enabled(true);
             modified = true;
           }
         },
         [&](c8* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system.execute_command<PropertyChangeCommand<c8>>(v, old_v, *v, std::string(name));
             modified = true;
           }
         },
         [&](i8* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system.execute_command<PropertyChangeCommand<i8>>(v, old_v, *v, std::string(name));
             modified = true;
           }
         },
         [&](u8* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system.execute_command<PropertyChangeCommand<u8>>(v, old_v, *v, std::string(name));
             modified = true;
           }
         },
         [&](i16* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system.execute_command<PropertyChangeCommand<i16>>(v, old_v, *v, std::string(name));
             modified = true;
           }
         },
         [&](u16* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system.execute_command<PropertyChangeCommand<u16>>(v, old_v, *v, std::string(name));
             modified = true;
           }
         },
         [&](i32* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system.execute_command<PropertyChangeCommand<i32>>(v, old_v, *v, std::string(name));
             modified = true;
           }
         },
         [&](u32* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system.execute_command<PropertyChangeCommand<u32>>(v, old_v, *v, std::string(name));
             modified = true;
           }
         },
         [&](i64* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system.execute_command<PropertyChangeCommand<i64>>(v, old_v, *v, std::string(name));
             modified = true;
           }
         },
         [&](u64* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system.execute_command<PropertyChangeCommand<u64>>(v, old_v, *v, std::string(name));
             modified = true;
           }
         },
         [&](f32* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system.execute_command<PropertyChangeCommand<f32>>(v, old_v, *v, std::string(name));
             modified = true;
           }
         },
         [&](f64* v) {
           auto old_v = *v;
           if (UI::property(name.data(), v)) {
-            undo_redo_system.execute_command<PropertyChangeCommand<f64>>(v, old_v, *v, std::string(name));
             modified = true;
           }
         },
@@ -147,21 +134,18 @@ struct EntityInspector : IEntitySerializer {
         auto* v = static_cast<glm::vec2*>(base);
         auto old_v = *v;
         if (UI::draw_vec2_control(name.data(), *v)) {
-          undo_redo_system.execute_command<PropertyChangeCommand<glm::vec2>>(v, old_v, *v, std::string(name));
           modified = true;
         }
       } else if (ops->type == world.entity<glm::vec3>()) {
         auto* v = static_cast<glm::vec3*>(base);
         auto old_v = *v;
         if (UI::draw_vec3_control(name.data(), *v)) {
-          undo_redo_system.execute_command<PropertyChangeCommand<glm::vec3>>(v, old_v, *v, std::string(name));
           modified = true;
         }
       } else if (ops->type == world.entity<glm::vec4>()) {
         auto* v = static_cast<glm::vec4*>(base);
         auto old_v = *v;
         if (UI::property_vector(name.data(), *v)) {
-          undo_redo_system.execute_command<PropertyChangeCommand<glm::vec4>>(v, old_v, *v, std::string(name));
           modified = true;
         }
       } else if (ops->type == world.entity<glm::quat>()) {
@@ -175,7 +159,6 @@ struct EntityInspector : IEntitySerializer {
         if (UI::draw_vec3_control(name.data(), *inspector_panel.euler_cache)) {
           auto old_v_cmd = *v;
           *v = glm::quat(glm::radians(inspector_panel.euler_cache.value()));
-          undo_redo_system.execute_command<PropertyChangeCommand<glm::quat>>(v, old_v_cmd, *v, std::string(name));
 
           modified = true;
         }
@@ -694,10 +677,34 @@ void InspectorPanel::draw_components(this InspectorPanel& self, flecs::entity en
 
       auto world = entity.world();
       auto inspector = EntityInspector(world, *undo_redo_system.get(), self);
+
+      // The inspector is immediate-mode and edits the component in place, so the undo entry is
+      // built around it: capture the reflected encoding before, and if anything changed record a
+      // pair of CmdSetComponent commands. Re-applying the forward one is a no-op, and the pair
+      // survives the entity being destroyed and recreated - which a raw field pointer never could.
+      auto before_blob = std::vector<u8>{};
+      const auto have_before = write_component_blob(entity, fid, before_blob);
+
       auto* component = entity.get_mut(fid);
       inspector.serialize(ty, component);
       if (inspector.modified) {
         entity.modified(fid);
+
+        auto after_blob = std::vector<u8>{};
+        if (have_before && write_component_blob(entity, fid, after_blob)) {
+          const auto handle = static_cast<EntityHandle>(entity.id());
+          undo_redo_system->execute_command<SimCommandRecord>(
+            App::mod<Editor>().get_selected_scene(),
+            SimCommand{
+              .payload = CmdSetComponent{.entity = handle, .state = ComponentState{.id = fid, .buffer = after_blob}},
+            },
+            SimCommand{
+              .payload = CmdSetComponent{.entity = handle, .state = ComponentState{.id = fid, .buffer = before_blob}},
+            },
+            std::string(ty.name().c_str()),
+            fmt::format("component:{}:{}", entity.id(), fid.raw_id())
+          );
+        }
       }
 
       UI::end_properties();
@@ -807,9 +814,7 @@ void InspectorPanel::draw_audio_asset(this InspectorPanel& self, ReadGuard<Audio
   ImGui::Spacing();
 }
 
-bool InspectorPanel::draw_script_asset(
-  this InspectorPanel& self, const UUID& uuid, ReadGuard<LuaSystem> lua_system
-) {
+bool InspectorPanel::draw_script_asset(this InspectorPanel& self, const UUID& uuid, ReadGuard<LuaSystem> lua_system) {
   ZoneScoped;
   memory::ScopedStack stack;
 

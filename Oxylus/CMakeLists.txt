@@ -51,8 +51,17 @@ set(OX_SIM_FILES
   src/Core/UUID.cpp
   src/Core/VFS.cpp
   src/Physics/PhysicsDebugRenderer.cpp
-  # Pure math that happens to sit under Render/. Moving the file is a separate cleanup.
+  # Asset sources with no GPU involvement at all. AssetFile is what lets rcli link the headless
+  # half alone; the other two were referenced by Scene and so had to come across with it.
+  src/Asset/AssetFile.cpp
+  src/Asset/Model.cpp
+  src/Asset/AudioSource.cpp
+  # Pure math and plain serialization that happen to sit under Render/. Camera computes matrices
+  # from a CameraComponent and RendererCVar is a settings blob - neither touches vuk. Moving the
+  # files is a separate cleanup.
   src/Render/BoundingVolume.cpp
+  src/Render/Camera.cpp
+  src/Render/RendererCVar.cpp
   src/Scene/DebugDrawList.cpp
   src/Utils/CVars.cpp
   src/Utils/Log.cpp

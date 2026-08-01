@@ -9,6 +9,7 @@
 #include "Core/App.hpp"
 #include "Editor.hpp"
 #include "Render/DebugRenderer.hpp"
+#include "Utils/SimCommandRecord.hpp"
 
 namespace ox {
 SceneHierarchyPanel::SceneHierarchyPanel() : EditorPanelState("Scene Hierarchy", ICON_MDI_VIEW_LIST, true) {
@@ -91,9 +92,28 @@ auto SceneHierarchyPanel::on_update(this SceneHierarchyPanel& self) -> void {
   }
 
   if (self.viewer.deleted_entity_) {
-    auto command_id = fmt::format("delete entity {}", self.viewer.deleted_entity_.name().c_str());
-    undo_redo_system
-      ->execute_command<EntityDeleteCommand>(self.viewer.get_scene(), self.viewer.deleted_entity_, "", command_id);
+    auto* scene = self.viewer.get_scene();
+    const auto entity = self.viewer.deleted_entity_;
+    const auto command_id = fmt::format("delete entity {}", entity.name().c_str());
+
+    // Capture the subtree before it goes, so the inverse can rebuild it. Done here rather than
+    // inside the command because only the client has a reason to remember deleted entities.
+    auto writer = JsonWriter{};
+    Scene::entity_to_json(writer, entity);
+
+    const auto parent = entity.parent();
+    undo_redo_system->execute_command<SimCommandRecord>(
+      scene,
+      SimCommand{.payload = CmdDestroyEntity{.entity = static_cast<EntityHandle>(entity.id())}},
+      SimCommand{
+        .payload =
+          CmdRestoreEntity{
+            .parent = parent != flecs::entity::null() ? static_cast<EntityHandle>(parent.id()) : EntityHandle::Invalid,
+            .serialized_json = writer.stream.str(),
+          },
+      },
+      command_id
+    );
     self.viewer.selected_entity_.reset();
   }
 }

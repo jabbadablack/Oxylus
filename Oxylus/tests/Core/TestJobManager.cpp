@@ -1,13 +1,23 @@
+#include <algorithm>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <thread>
 
 #include "Core/JobManager.hpp"
 
 class JobManagerTest : public ::testing::Test {
 protected:
-  void SetUp() override { manager = std::make_unique<ox::JobManager>(); }
+  void SetUp() override {
+    manager = std::make_unique<ox::JobManager>();
+    // Without init() there are no worker threads, so the first wait() blocks forever on a job
+    // nothing can run. This is what hung the suite.
+    std::ignore = manager->init();
+  }
 
-  void TearDown() override { manager->shutdown(); }
+  void TearDown() override {
+    manager->shutdown();
+    std::ignore = manager->deinit();
+  }
 
   std::unique_ptr<ox::JobManager> manager = nullptr;
 };
@@ -27,23 +37,29 @@ TEST_F(JobManagerTest, ExecutesSingleJob) {
   EXPECT_TRUE(executed);
 }
 
-TEST_F(JobManagerTest, ExecutesMultipleJobsInOrder) {
-  std::vector<int> execution_order;
-  std::mutex order_mutex;
+// Completion order across a worker pool is not a guarantee - the point of the pool is that jobs run
+// concurrently. What is guaranteed is that every submitted job runs exactly once before wait()
+// returns. (This previously asserted submission order, which only held because the manager was never
+// started and so nothing ever ran.)
+TEST_F(JobManagerTest, ExecutesEverySubmittedJob) {
+  std::vector<int> executed;
+  std::mutex executed_mutex;
 
   manager->push_job_name("OrderTest");
 
   for (int i = 0; i < 5; ++i) {
     auto job = ox::Job::create([&, i] {
-      std::lock_guard lock(order_mutex);
-      execution_order.push_back(i);
+      std::lock_guard lock(executed_mutex);
+      executed.push_back(i);
     });
     manager->submit(job);
   }
   manager->pop_job_name();
 
   manager->wait();
-  EXPECT_EQ(execution_order, std::vector<int>({0, 1, 2, 3, 4}));
+
+  std::ranges::sort(executed);
+  EXPECT_EQ(executed, std::vector<int>({0, 1, 2, 3, 4}));
 }
 
 // --- Thread Safety Tests ---
@@ -83,20 +99,35 @@ TEST_F(JobManagerTest, SafeWithSimultaneousSubmitAndShutdown) {
 TEST_F(JobManagerTest, TracksJobStatusWhenEnabled) {
   manager->get_tracker().start_tracking();
 
+  // The job has to be held in flight to observe it as "working". An empty job finishes long before
+  // the assertion runs, which is why this raced once the manager actually started its workers.
+  std::atomic<bool> release{false};
+  std::atomic<bool> started{false};
+
   manager->push_job_name("TrackedJob");
-  auto job = ox::Job::create([] {});
+  auto job = ox::Job::create([&] {
+    started.store(true);
+    while (!release.load()) {
+      std::this_thread::yield();
+    }
+  });
   manager->submit(job);
+  manager->pop_job_name();
+
+  while (!started.load()) {
+    std::this_thread::yield();
+  }
 
   auto status = manager->get_tracker().get_status();
   ASSERT_EQ(status.size(), 1);
   EXPECT_EQ(status[0].first, "TrackedJob");
-  EXPECT_TRUE(status[0].second); // Should be working
-  manager->pop_job_name();
+  EXPECT_TRUE(status[0].second); // in flight
 
+  release.store(true);
   manager->wait();
 
   status = manager->get_tracker().get_status();
-  EXPECT_FALSE(status[0].second); // Should be done
+  EXPECT_FALSE(status[0].second); // done
 }
 
 TEST_F(JobManagerTest, NoTrackingWhenDisabled) {

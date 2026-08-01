@@ -94,6 +94,11 @@ auto IEntitySerializer::serialize_ops(flecs::meta::op_t* ops, i32 op_count, void
       } break;
 
       case EcsOpOpaqueValue: {
+        if (assigns_opaque()) {
+          on_opaque_field(name, op.type, ptr);
+          break;
+        }
+
         auto opaque_ctx = OpaqueContext{.self = this, .name = name, .field_type = op.type, .field_ptr = ptr};
         auto serializer = flecs::serializer{};
         serializer.world = world;
