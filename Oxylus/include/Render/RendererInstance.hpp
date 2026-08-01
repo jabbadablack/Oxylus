@@ -3,11 +3,15 @@
 #include <ankerl/unordered_dense.h>
 
 #include "Asset/Texture.hpp"
+#include "Render/RenderQueue2D.hpp"
 #include "Render/Renderer.hpp"
 #include "Render/RendererCVar.hpp"
 #include "Scene/SceneGPU.hpp"
 
 namespace ox {
+// vuk::Extent3D and GPU::Extent3D are layout-compatible; this is the one place that bridges them.
+auto to_gpu_extent(vuk::Extent3D extent) -> GPU::Extent3D;
+
 enum class RenderStage {
   Initialization,
   Culling,

@@ -5,22 +5,11 @@
 #include <vuk/runtime/vk/VkTypes.hpp>
 #include <zpp_bits.h>
 
+#include "Asset/Fwd.hpp"
 #include "Core/Option.hpp"
 #include "Core/Types.hpp"
 
 namespace ox {
-enum class AssetType : u32 {
-  None = 0,
-  Shader,
-  Model,
-  Texture,
-  Material,
-  Font,
-  Scene,
-  Audio,
-  Script,
-};
-
 // List of file extensions supported by Engine.
 enum class AssetFileType : u32 {
   None = 0,

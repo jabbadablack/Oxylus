@@ -11,6 +11,7 @@
 
 #include <simdjson.h>
 
+#include "Asset/Fwd.hpp"
 #include "Asset/Model.hpp"
 #include "Core/UUID.hpp"
 #include "Physics/PhysicsInterfaces.hpp"
@@ -50,7 +51,6 @@ struct ComponentDB {
   auto get_components(this ComponentDB&) -> std::span<flecs::id>;
 };
 
-enum class SceneID : u64 { Invalid = std::numeric_limits<u64>::max() };
 class Scene {
 public:
   std::string scene_name = "Untitled";

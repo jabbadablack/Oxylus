@@ -1133,7 +1133,9 @@ auto Scene::runtime_stop(this Scene& self) -> void {
 auto Scene::runtime_update(this Scene& self, const Timestep& delta_time) -> void {
   ZoneScoped;
 
-  self.physics_accumulator += delta_time.get_millis();
+  // Seconds, to match physics_interval. What remains after draining whole steps is the
+  // interpolation alpha consumed by the `physics_interpolate` system.
+  self.physics_accumulator += static_cast<f32>(delta_time.get_seconds());
   while (self.physics_accumulator >= self.physics_interval) {
     self.physics_accumulator -= self.physics_interval;
   }
@@ -1150,6 +1152,12 @@ auto Scene::runtime_update(this Scene& self, const Timestep& delta_time) -> void
 
   // TODO: Pass our delta_time?
   self.world.progress();
+
+  if (pre_update_phase_enabled && on_update_phase_enabled) {
+    for (auto& [uuid, system] : self.lua_systems) {
+      system->on_scene_late_update(&self, static_cast<f32>(delta_time.get_seconds()));
+    }
+  }
 
   if (self.renderer_cvar.cvar_enable_physics_debug_renderer.get()) {
     JPH::BodyManager::DrawSettings settings{};
@@ -1871,10 +1879,6 @@ auto Scene::render(
 
   auto ri = self.get_renderer_instance();
   OX_CHECK_NULL(ri);
-
-  for (auto& [uuid, system] : self.lua_systems) {
-    system->on_scene_render(&self, dst_attachment->extent);
-  }
 
   return ri->render(std::move(dst_attachment), render_info, self.renderer_cvar);
 }

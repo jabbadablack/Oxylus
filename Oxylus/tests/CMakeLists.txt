@@ -20,9 +20,17 @@ foreach(_src IN LISTS OX_TEST_SOURCES)
 
   target_include_directories(${_name} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 
+  # Tests under tests/Sim/ link the headless half only. That is what makes them a boundary check
+  # and not just a test: pulling in anything vuk- or SDL-shaped fails to link here.
+  if(_src MATCHES "/tests/Sim/")
+    set(_engine_lib ox::OxylusSim)
+  else()
+    set(_engine_lib ox::Oxylus)
+  endif()
+
   target_link_libraries(${_name} PRIVATE
     ox_project_options
-    ox::Oxylus
+    ${_engine_lib}
     GTest::gtest
     GTest::gmock
     GTest::gtest_main)

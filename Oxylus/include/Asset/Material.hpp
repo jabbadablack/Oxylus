@@ -3,6 +3,7 @@
 #include <glm/vec3.hpp>
 #include <glm/vec4.hpp>
 
+#include "Asset/Fwd.hpp"
 #include "Core/UUID.hpp"
 
 namespace ox {
@@ -22,7 +23,6 @@ enum class SamplingMode : u32 {
   LinearRepeatedAnisotropy = 4,
 };
 
-enum class MaterialID : u64 { Invalid = std::numeric_limits<u64>::max() };
 struct Material {
   glm::vec4 albedo_color = {1.0f, 1.0f, 1.0f, 1.0f};
   glm::vec2 uv_size = {1.0f, 1.0f};

@@ -3,12 +3,11 @@
 #include <glm/gtx/quaternion.hpp>
 #include <vuk/Buffer.hpp>
 
+#include "Asset/Fwd.hpp"
 #include "Core/UUID.hpp"
 #include "Scene/SceneGPU.hpp"
 
 namespace ox {
-
-enum class ModelID : u64 { Invalid = std::numeric_limits<u64>::max() };
 
 struct Model {
   constexpr static auto MAX_MESHLET_INDICES = 64_sz;
@@ -52,7 +51,6 @@ struct Model {
   auto get_mesh_bounds(this const Model& self) -> GPU::MeshBounds;
 };
 
-enum struct MeshInstanceID : u64 { Invalid = ~0_u64 };
 struct MeshInstance {
   UUID model_uuid = UUID(nullptr);
   usize mesh_node_index = 0;

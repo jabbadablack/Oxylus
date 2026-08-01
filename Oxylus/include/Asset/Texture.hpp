@@ -6,13 +6,13 @@
 #include <vuk/runtime/vk/PipelineInstance.hpp>
 #include <vuk/runtime/vk/Query.hpp>
 
+#include "Asset/Fwd.hpp"
 #include "Core/Types.hpp"
 #include "Render/RenderContext.hpp"
 
 using Preset = vuk::ImageAttachment::Preset;
 
 namespace ox {
-enum class TextureID : u64 { Invalid = std::numeric_limits<u64>::max() };
 
 using TextureDataSource = std::variant<std::filesystem::path, std::span<const u8>>;
 

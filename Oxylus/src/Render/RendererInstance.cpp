@@ -13,6 +13,10 @@
 #include "Utils/Log.hpp"
 
 namespace ox {
+auto to_gpu_extent(const vuk::Extent3D extent) -> GPU::Extent3D {
+  return GPU::Extent3D{.width = extent.width, .height = extent.height, .depth = extent.depth};
+}
+
 template <typename T>
 auto update_projected_transform_buffer(
   auto& render_context,
@@ -201,8 +205,8 @@ RendererInstance::RendererInstance(Scene& owner_scene, Renderer& parent_renderer
   render_context.wait_on(std::move(sky_cubemap_init));
 
   auto temp_atmos_info = GPU::Atmosphere{};
-  temp_atmos_info.transmittance_lut_size = sky_transmittance_lut.get_extent();
-  temp_atmos_info.multiscattering_lut_size = sky_multiscatter_lut.get_extent();
+  temp_atmos_info.transmittance_lut_size = to_gpu_extent(sky_transmittance_lut.get_extent());
+  temp_atmos_info.multiscattering_lut_size = to_gpu_extent(sky_multiscatter_lut.get_extent());
   auto temp_atmos_buffer = render_context.scratch_buffer(temp_atmos_info);
 
   auto transmittance_lut_attachment = sky_transmittance_lut.discard("sky_transmittance_lut");
@@ -1311,10 +1315,10 @@ auto RendererInstance::update(this RendererInstance& self, RendererInstanceUpdat
         self.atmosphere.ozone_thickness = atmos_info->ozone_thickness;
         self.atmosphere.aerial_perspective_start_km = atmos_info->aerial_perspective_start_km;
         self.atmosphere.aerial_perspective_exposure = atmos_info->aerial_perspective_exposure;
-        self.atmosphere.sky_view_lut_size = self.sky_view_lut_extent;
-        self.atmosphere.aerial_perspective_lut_size = self.sky_aerial_perspective_lut_extent;
-        self.atmosphere.transmittance_lut_size = self.sky_transmittance_lut.get_extent();
-        self.atmosphere.multiscattering_lut_size = self.sky_multiscatter_lut.get_extent();
+        self.atmosphere.sky_view_lut_size = to_gpu_extent(self.sky_view_lut_extent);
+        self.atmosphere.aerial_perspective_lut_size = to_gpu_extent(self.sky_aerial_perspective_lut_extent);
+        self.atmosphere.transmittance_lut_size = to_gpu_extent(self.sky_transmittance_lut.get_extent());
+        self.atmosphere.multiscattering_lut_size = to_gpu_extent(self.sky_multiscatter_lut.get_extent());
       }
 
       if (const auto* sky_info = e.try_get<SkyComponent>()) {
