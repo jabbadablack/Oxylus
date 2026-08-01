@@ -613,4 +613,3 @@ preference:
 and release with `OX_TESTS=OFF` and `OX_MARCH_NATIVE=OFF`, using `cmake --preset` and
 `cmake --build --preset`. CPM sources are cached on a hash of `cmake/Dependencies.cmake`. It does
 **not** run tests, so verify tests locally.
-
