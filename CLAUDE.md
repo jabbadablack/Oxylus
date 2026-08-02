@@ -639,13 +639,11 @@ and release with `OX_TESTS=OFF` and `OX_MARCH_NATIVE=OFF`, using `cmake --preset
 `cmake --build --preset`. CPM sources are cached on a hash of `cmake/Dependencies.cmake`. It does
 **not** run tests, so verify tests locally.
 
-**Linux CI is pinned to LLVM 22, and that pin is load-bearing.** sol2's
-`upvalue_this_member_variable::call` is a static member function template of a class template carrying
-a conditional `noexcept(std::is_nothrow_copy_assignable_v<T>)`, and sol2 takes its address into a
-plain `lua_CFunction`. Whether a compiler accepts that is version-sensitive — sol2 has an open
-upstream issue for the same construct failing on some toolchains and not others, and upstream has not
-changed it. clang 20 rejects it with *"address of overloaded function 'call' does not match required
-type 'int (lua_State *)'"* on every `registry.bind<&C::member...>()` and `new_usertype` member
-binding; clang 22 and MSVC accept it. Do not drop the Linux toolchain below 22 to match some other
-constraint without checking `Scene/src/Components.cpp` and `Scripting/src/Lua*Bindings.cpp` still
-compile.
+**Do not bump `LLVM_VERSION` in `ci.yaml` without checking which compiler actually runs.** The Linux
+job installs versioned packages from apt.llvm.org and then points `/usr/bin/clang++` at them with
+`update-alternatives`. Raising the version installs newer libc++ headers into the default include
+path, but if the alternatives switch does not take effect the build gets *new libc++ headers with an
+old clang* — which fails immediately in `<type_traits>` on `__builtin_clzg`, `__builtin_ctzg` and
+`__GCC_DESTRUCTIVE_SIZE`, preceded by the giveaway warning `"Libc++ only supports Clang 20 and
+later"`. Those errors are toolchain skew, not a code problem. Verify with `clang++ --version` and
+`clang++ -print-file-name=libc++.so` before concluding anything about a version bump.
