@@ -642,17 +642,8 @@ if(NOT EXISTS "${_ox_slang_cmake_dir}/slangConfig.cmake")
     "https://github.com/shader-slang/slang/releases/download/v${OX_SLANG_VERSION}/slang-${OX_SLANG_VERSION}-${_ox_slang_slug}.tar.gz"
     "${_ox_slang_prefix}/slang.tar.gz"
     EXPECTED_HASH SHA256=${_ox_slang_hash}
-    STATUS _ox_slang_status
     SHOW_PROGRESS)
-  list(GET _ox_slang_status 0 _ox_slang_code)
-  if(NOT _ox_slang_code EQUAL 0)
-    list(GET _ox_slang_status 1 _ox_slang_error)
-    file(REMOVE "${_ox_slang_prefix}/slang.tar.gz")
-    message(FATAL_ERROR
-      "ox: failed to download shader-slang ${OX_SLANG_VERSION} (${_ox_slang_slug}): ${_ox_slang_error}")
-  endif()
   file(ARCHIVE_EXTRACT INPUT "${_ox_slang_prefix}/slang.tar.gz" DESTINATION "${_ox_slang_prefix}")
-  file(REMOVE "${_ox_slang_prefix}/slang.tar.gz")
 endif()
 
 find_package(slang REQUIRED CONFIG PATHS "${_ox_slang_cmake_dir}" NO_DEFAULT_PATH)

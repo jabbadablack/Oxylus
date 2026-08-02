@@ -2,16 +2,32 @@
 #include <pthread.h>
 #include <sys/file.h>
 #include <sys/mman.h>
+#include <sys/proc_info.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/sysctl.h>
 #include <unistd.h>
 
-#include "Memory/Stack.hpp"
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
+#include <iterator>
+#include <span>
+
+#include <fmt/format.h>
+#include <fmt/std.h>
+
 #include "OS/OS.hpp"
 #include "Utils/Log.hpp"
 
 namespace ox {
+static auto null_terminate_thread_name(std::span<c8> buffer, std::string_view name) -> const c8* {
+  const auto length = std::min(name.size(), buffer.size() - 1);
+  std::memcpy(buffer.data(), name.data(), length);
+  buffer[length] = '\0';
+  return buffer.data();
+}
+
 auto os::mem_page_size() -> u64 {
   ZoneScoped;
   return sysconf(_SC_PAGESIZE);
@@ -50,19 +66,19 @@ auto os::thread_id() -> i64 {
 
 auto os::set_thread_name(std::string_view name) -> void {
   ZoneScoped;
-  memory::ScopedStack stack;
 
-  pthread_setname_np(stack.null_terminate_cstr(name));
+  c8 buffer[MAXTHREADNAMESIZE];
+  pthread_setname_np(null_terminate_thread_name(buffer, name));
 }
 
 auto os::set_thread_name(std::thread::native_handle_type thread, std::string_view name) -> void {
   ZoneScoped;
-  memory::ScopedStack stack;
 
   // NOTE: On macOS, you can only set the current thread's name.
   // Setting another thread's name requires a different approach.
   if (pthread_equal(thread, pthread_self())) {
-    pthread_setname_np(stack.null_terminate_cstr(name));
+    c8 buffer[MAXTHREADNAMESIZE];
+    pthread_setname_np(null_terminate_thread_name(buffer, name));
   } else {
     OX_LOG_WARN("Setting another thread's name is not implemented on this platform!");
   }
@@ -70,10 +86,12 @@ auto os::set_thread_name(std::thread::native_handle_type thread, std::string_vie
 
 auto os::open_folder_select_file(const std::filesystem::path& path) -> void {
   ZoneScoped;
-  memory::ScopedStack stack;
 
-  auto* command = stack.format_char("open -R \"{}\"", path);
-  int result = system(command);
+  auto command = fmt::memory_buffer();
+  fmt::format_to(std::back_inserter(command), "open -R \"{}\"", path);
+  command.push_back('\0');
+
+  int result = system(command.data());
 
   if (result != 0) {
     OX_LOG_WARN("Failed to open folder and select file: {}", path);

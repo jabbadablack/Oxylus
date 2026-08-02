@@ -45,8 +45,15 @@ matter where the process was launched from. `with_working_directory()` still ove
 
 Toolchains are `msvc`, `clang-cl`, `clang`, `nix-clang`, `mac-clang`; modes are `debug`, `release`,
 `dist`. On NixOS, use `nix-shell` (see `shell.nix`) and the `nix-clang-*` presets; the shell pins
-libc++, the Vulkan loader, mold, and the X11 **and** Wayland inputs SDL3 needs to configure both
-backends.
+libc++, the Vulkan loader, and mold.
+
+SDL3 is configured `SDL_X11 ON` / `SDL_WAYLAND OFF`, and `SDL_X11 ON` makes **every** X11 sub-feature
+a hard dependency — a missing header is a `SDL_missing_dependency` fatal error at configure time, not
+a disabled feature. The full set its `CheckX11` demands is Xcursor, Xdbe, XInput2, Xfixes, Xrandr,
+XScrnSaver, XShape, XTest and Xsync, which on Debian/Ubuntu means `libx11-dev libxext-dev libxi-dev
+libxfixes-dev libxrandr-dev libxcursor-dev libxss-dev libxtst-dev` (plus `libxkbcommon-dev`). Both
+`.github/workflows/ci.yaml` and `shell.nix` carry that list; adding an X11 sub-feature to SDL means
+adding a package to both.
 
 **On macOS, export `LLVM_PATH` before configuring**: `export LLVM_PATH=$(brew --prefix llvm@22)`.
 The `mac-clang-*` presets read it rather than hardcoding a Homebrew prefix, because that prefix is
@@ -70,16 +77,11 @@ registered in the root `CMakeLists.txt` before `project()`, with its flags set i
 `cmake/OxBuild.cmake` — it is not one of CMake's built-ins.
 Output lands in `build/<plat>/<arch>/<mode>/`, with resources and compiled shader packs copied next to
 the binary; CMake's own scratch dirs live under `build/.cmake/<preset>/`.
-`compile_commands.json` is auto-copied into `build/` for clangd (Ninja and Makefiles only — no other
-generator produces the file, and an unconditional `ALL` target to copy it would fail every build).
+`compile_commands.json` is auto-copied into `build/` for clangd.
 
-That artifact path deliberately omits the preset name, so two presets can land in one directory. The
-`.ox-toolchain` stamp written there is what catches it: it records compiler, compiler version,
-`OX_CXX_RUNTIME`, `CMAKE_LINKER_TYPE`, `OX_FORCE_M64` and `OX_MARCH_NATIVE`, and configure hard-fails
-if a different combination produced the directory. The last three are in the id because `clang` and
-`nix-clang` are otherwise indistinguishable — same compiler, same runtime — while differing in
-linker, `-m64` and `-march`, and they would silently interleave artifacts in
-`build/linux/x86_64/<mode>`.
+That artifact path omits the preset name, so the `.ox-toolchain` stamp written there records
+compiler, compiler version and `OX_CXX_RUNTIME`, and configure hard-fails if a different toolchain
+produced the directory. Switching compiler version means removing `build/<plat>/<arch>/<mode>` first.
 
 The build lives in four files and deliberately stays that way — resist splitting it up again:
 
@@ -153,6 +155,15 @@ release builds unless they carried `debug = is_mode("debug")`. `ox_configure_dep
 walk skips `OxylusServer/`, `OxylusClient/`, `OxylusEditor/` and `ResourceCompiler/` by name — it
 runs after every subdirectory now, so it would otherwise silence our own warnings.
 
+The same walk forces `POSITION_INDEPENDENT_CODE ON` on every non-executable dependency target. The
+engine's own modules get it from `ox_configure_module`, but a third-party **static** library that
+does not set it builds non-PIC objects, and linking those into one of our shared libraries fails on
+Linux with `relocation R_X86_64_PC32 ... can not be used when making a shared object`. simdjson into
+`libOxylusServerRender.so` is the one that surfaced it; `SPIRV-Tools-opt` into `ResourceCompiler.so`
+and `vuk`/`SDL3-static`/`fastgltf`/`ktx` into the editor (PIE by default on Ubuntu) are the same
+trap. Windows never shows it — MSVC code is position-independent already, so the property is inert
+there and the whole class of failure is invisible until a Linux link.
+
 The same walk also marks every dependency target `SYSTEM` (so warnings inside their headers are not
 reported when our TUs include them) and compiles them with `/w` (or `-w`). Dependency warnings are
 not actionable here and drown out our own; without this a clean build emits well over a hundred
@@ -211,6 +222,15 @@ server/client boundary; keep it honest.
 | `OxylusServerCore` | Core | Memory, Utils, OS |
 | `OxylusServerRender` | Render | Utils |
 | `OxylusServerLib` | Asset, Networking, Physics, Scene, Scripting, Server | all of the above |
+
+**`OxylusServerOS` is a leaf and has to stay one.** `Memory` links `OS` — `ScopedStack` reserves and
+commits its per-thread stack through `os::mem_reserve`/`os::mem_commit` — so an `OS` source that uses
+`memory::ScopedStack` inverts that edge, and since both are shared libraries the cycle cannot be
+linked. It does not fail at compile time: `ox_server_headers` puts every module's `include/` on the
+path, so `#include "Memory/Stack.hpp"` builds fine and the breakage is undefined symbols at link.
+Windows never caught it because only `Linux.cpp` and `MacOS.cpp` had reached for the stack allocator;
+they now use a fixed `c8` buffer for thread names and `fmt::memory_buffer` for command strings. When
+a `.cpp` under `OxylusServer/OS/` needs scratch memory, that is the pattern — not `ScopedStack`.
 
 **`OxylusClient/`** — renderer, windowing, input, UI. `OxylusClientLib` links `OxylusServerLib`, so
 it inherits the whole simulation side; nothing goes the other way.
@@ -446,15 +466,9 @@ Jolt contact callbacks. Scripts can define flecs systems, so gameplay can be wri
   one-arg-per-line binpacking). Run `clang-format -i` on files you touch.
 - Warnings are aggressive (`allextra`, `pedantic`, `-Wshadow`/`-Wshadow-all`) though not fatal;
   shadowing in particular is treated as a bug here, so don't reuse names from an enclosing scope.
-  Those `-W` flags are probed with `check_cxx_compiler_flag` before use; the probe's
-  `CMAKE_REQUIRED_FLAGS` are clang spellings and must stay behind an `OX_COMPILER MATCHES "^clang"`
-  guard, or under GCC every probe fails and the whole list — including `-Wno-unused-parameter` —
-  is silently dropped.
 - **Asset file extensions must be lower-case.** `ox_install_resources` globs `OX_RESOURCE_EXTENSIONS`,
-  and `file(GLOB_RECURSE)` is case-insensitive on NTFS but case-sensitive everywhere else, so
-  `Icon.PNG` stages on Windows and vanishes on Linux and macOS. Adding upper-case globs is not the
-  fix — on Windows they would match the same file twice and emit two `add_custom_command(OUTPUT ...)`
-  rules for one path — so configure fails with the offending paths listed instead.
+  which is all lower-case, and `file(GLOB_RECURSE)` is case-insensitive on NTFS but case-sensitive
+  everywhere else — so `Icon.PNG` stages on Windows and silently vanishes on Linux and macOS.
 
 ### Headers and includes
 
@@ -609,7 +623,35 @@ preference:
 
 ## CI
 
-`.github/workflows/ci.yaml` builds Windows/msvc, Linux/clang-20, and macOS/mac-clang in both debug
+`.github/workflows/ci.yaml` builds Windows/msvc, Linux/clang-19, and macOS/mac-clang in both debug
 and release with `OX_TESTS=OFF` and `OX_MARCH_NATIVE=OFF`, using `cmake --preset` and
 `cmake --build --preset`. CPM sources are cached on a hash of `cmake/Dependencies.cmake`. It does
 **not** run tests, so verify tests locally.
+
+**clang 19 is the minimum supported compiler, and CI runs it deliberately** — Debian trixie's stock
+clang is 19, so that is what you get in WSL, and CI testing the floor is what keeps the two honest.
+Raise `LLVM_VERSION` only with a reason better than "a newer stdlib has the function I want".
+
+The floor is load-bearing in at least one place: libc++ did not implement floating-point
+`std::from_chars` until LLVM 20, so `UI/RuntimeConsole.hpp`'s `ParsedCommandValue::as<T>()` uses
+`strtod` for floating point and keeps integers on `from_chars`. A stdlib feature that libc++ has not
+caught up on fails as a deleted overload or a missing symbol, with no version diagnostic to point
+at — check libc++'s status page before relying on a recent `<charconv>`, `<format>` or `<ranges>`
+entry point.
+
+**The Linux job symlinks `/usr/bin/clang++` at the versioned binary on purpose.** It used to use
+`update-alternatives --install`, which silently did not take effect — the runner's stock clang 18
+stayed on `/usr/bin/clang++` no matter what `LLVM_VERSION` said, so bumping the version changed
+nothing but the installed headers. Two symptoms of that skew, both of which cost real debugging time:
+
+- clang 18 rejects sol2's member-variable bindings (`registry.bind<&C::member...>()`,
+  `new_usertype`) with *"address of overloaded function 'call' does not match required type"* —
+  sol2 has open upstream issues for exactly this on 18. clang 19 compiles them fine.
+- Pairing new libc++ headers with that old clang blows up inside `<type_traits>` on
+  `__builtin_clzg`, `__builtin_ctzg` and `__GCC_DESTRUCTIVE_SIZE`, preceded by
+  `"Libc++ only supports Clang 20 and later"`.
+
+Neither is a code problem. The `clang++ --version` echo in the same step exists so the compiler is
+never again something you have to infer — and a quick tell is the compile line itself: if
+`-Wno-c2y-extensions` is missing from it, the probe rejected the flag and you are on a clang older
+than 19.

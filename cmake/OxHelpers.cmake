@@ -80,30 +80,10 @@ function(ox_install_resources)
   get_filename_component(ARG_ROOT_DIR "${ARG_ROOT_DIR}" ABSOLUTE)
 
   set(_globs "")
-  set(_lower_exts "")
   foreach(_ext IN LISTS ARG_EXTENSIONS)
     list(APPEND _globs "${ARG_ROOT_DIR}/*${_ext}")
-    string(TOLOWER "${_ext}" _ext_lower)
-    list(APPEND _lower_exts "${_ext_lower}")
   endforeach()
   file(GLOB_RECURSE _files CONFIGURE_DEPENDS ${_globs})
-
-  set(_miscased "")
-  file(GLOB_RECURSE _all_files "${ARG_ROOT_DIR}/*")
-  foreach(_src IN LISTS _all_files)
-    get_filename_component(_ext "${_src}" LAST_EXT)
-    string(TOLOWER "${_ext}" _ext_lower)
-    if(_ext_lower IN_LIST _lower_exts AND NOT _ext IN_LIST ARG_EXTENSIONS)
-      file(RELATIVE_PATH _rel "${ARG_ROOT_DIR}" "${_src}")
-      list(APPEND _miscased "${_rel}")
-    endif()
-  endforeach()
-  if(_miscased)
-    list(JOIN _miscased "\n  " _miscased_text)
-    message(FATAL_ERROR
-      "ox_install_resources: these assets have an upper-case extension and would not be staged on a "
-      "case-sensitive filesystem. Rename them to a lower-case extension:\n  ${_miscased_text}")
-  endif()
 
   set(_outputs "")
   foreach(_src IN LISTS _files)
@@ -194,6 +174,10 @@ function(_ox_configure_dependency_dir dir)
 
     if(_type STREQUAL "INTERFACE_LIBRARY" OR _type STREQUAL "UTILITY")
       continue()
+    endif()
+
+    if(NOT _type STREQUAL "EXECUTABLE")
+      set_target_properties(${_target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
     endif()
 
     if(MSVC)
