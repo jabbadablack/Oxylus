@@ -639,13 +639,19 @@ caught up on fails as a deleted overload or a missing symbol, with no version di
 at — check libc++'s status page before relying on a recent `<charconv>`, `<format>` or `<ranges>`
 entry point.
 
-Also worth knowing: clang **20** specifically rejects sol2's member-variable bindings
-(`registry.bind<&C::member...>()`, `new_usertype`) with *"address of overloaded function 'call' does
-not match required type"*. clang 19 and 22 both accept them. If someone bumps the toolchain, 20 is
-the one version to skip.
+**The Linux job symlinks `/usr/bin/clang++` at the versioned binary on purpose.** It used to use
+`update-alternatives --install`, which silently did not take effect — the runner's stock clang 18
+stayed on `/usr/bin/clang++` no matter what `LLVM_VERSION` said, so bumping the version changed
+nothing but the installed headers. Two symptoms of that skew, both of which cost real debugging time:
 
-If a Linux-only compile error looks like it is inside `<type_traits>` — `__builtin_clzg`,
-`__builtin_ctzg`, `__GCC_DESTRUCTIVE_SIZE` — with the warning `"Libc++ only supports Clang 20 and
-later"`, that is toolchain skew, not code: new libc++ headers paired with an old clang because
-`update-alternatives --install` did not actually move `/usr/bin/clang++`. Check `clang++ --version`
-before believing anything else the log says.
+- clang 18 rejects sol2's member-variable bindings (`registry.bind<&C::member...>()`,
+  `new_usertype`) with *"address of overloaded function 'call' does not match required type"* —
+  sol2 has open upstream issues for exactly this on 18. clang 19 compiles them fine.
+- Pairing new libc++ headers with that old clang blows up inside `<type_traits>` on
+  `__builtin_clzg`, `__builtin_ctzg` and `__GCC_DESTRUCTIVE_SIZE`, preceded by
+  `"Libc++ only supports Clang 20 and later"`.
+
+Neither is a code problem. The `clang++ --version` echo in the same step exists so the compiler is
+never again something you have to infer — and a quick tell is the compile line itself: if
+`-Wno-c2y-extensions` is missing from it, the probe rejected the flag and you are on a clang older
+than 19.
