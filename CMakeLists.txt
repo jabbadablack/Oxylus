@@ -56,7 +56,7 @@ endif()
 # them is not configured until the engine subdirectories have all been processed.
 ox_configure_dependencies()
 
-if(CMAKE_EXPORT_COMPILE_COMMANDS AND CMAKE_GENERATOR MATCHES "Ninja|Makefiles")
+if(CMAKE_EXPORT_COMPILE_COMMANDS)
   add_custom_target(ox_compile_commands ALL
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${CMAKE_BINARY_DIR}/compile_commands.json"

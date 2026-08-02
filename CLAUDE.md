@@ -77,16 +77,11 @@ registered in the root `CMakeLists.txt` before `project()`, with its flags set i
 `cmake/OxBuild.cmake` — it is not one of CMake's built-ins.
 Output lands in `build/<plat>/<arch>/<mode>/`, with resources and compiled shader packs copied next to
 the binary; CMake's own scratch dirs live under `build/.cmake/<preset>/`.
-`compile_commands.json` is auto-copied into `build/` for clangd (Ninja and Makefiles only — no other
-generator produces the file, and an unconditional `ALL` target to copy it would fail every build).
+`compile_commands.json` is auto-copied into `build/` for clangd.
 
-That artifact path deliberately omits the preset name, so two presets can land in one directory. The
-`.ox-toolchain` stamp written there is what catches it: it records compiler, compiler version,
-`OX_CXX_RUNTIME`, `CMAKE_LINKER_TYPE`, `OX_FORCE_M64` and `OX_MARCH_NATIVE`, and configure hard-fails
-if a different combination produced the directory. The last three are in the id because `clang` and
-`nix-clang` are otherwise indistinguishable — same compiler, same runtime — while differing in
-linker, `-m64` and `-march`, and they would silently interleave artifacts in
-`build/linux/x86_64/<mode>`.
+That artifact path omits the preset name, so the `.ox-toolchain` stamp written there records
+compiler, compiler version and `OX_CXX_RUNTIME`, and configure hard-fails if a different toolchain
+produced the directory. Switching compiler version means removing `build/<plat>/<arch>/<mode>` first.
 
 The build lives in four files and deliberately stays that way — resist splitting it up again:
 
@@ -471,15 +466,9 @@ Jolt contact callbacks. Scripts can define flecs systems, so gameplay can be wri
   one-arg-per-line binpacking). Run `clang-format -i` on files you touch.
 - Warnings are aggressive (`allextra`, `pedantic`, `-Wshadow`/`-Wshadow-all`) though not fatal;
   shadowing in particular is treated as a bug here, so don't reuse names from an enclosing scope.
-  Those `-W` flags are probed with `check_cxx_compiler_flag` before use; the probe's
-  `CMAKE_REQUIRED_FLAGS` are clang spellings and must stay behind an `OX_COMPILER MATCHES "^clang"`
-  guard, or under GCC every probe fails and the whole list — including `-Wno-unused-parameter` —
-  is silently dropped.
 - **Asset file extensions must be lower-case.** `ox_install_resources` globs `OX_RESOURCE_EXTENSIONS`,
-  and `file(GLOB_RECURSE)` is case-insensitive on NTFS but case-sensitive everywhere else, so
-  `Icon.PNG` stages on Windows and vanishes on Linux and macOS. Adding upper-case globs is not the
-  fix — on Windows they would match the same file twice and emit two `add_custom_command(OUTPUT ...)`
-  rules for one path — so configure fails with the offending paths listed instead.
+  which is all lower-case, and `file(GLOB_RECURSE)` is case-insensitive on NTFS but case-sensitive
+  everywhere else — so `Icon.PNG` stages on Windows and silently vanishes on Linux and macOS.
 
 ### Headers and includes
 
@@ -634,16 +623,29 @@ preference:
 
 ## CI
 
-`.github/workflows/ci.yaml` builds Windows/msvc, Linux/clang-20, and macOS/mac-clang in both debug
+`.github/workflows/ci.yaml` builds Windows/msvc, Linux/clang-19, and macOS/mac-clang in both debug
 and release with `OX_TESTS=OFF` and `OX_MARCH_NATIVE=OFF`, using `cmake --preset` and
 `cmake --build --preset`. CPM sources are cached on a hash of `cmake/Dependencies.cmake`. It does
 **not** run tests, so verify tests locally.
 
-**Do not bump `LLVM_VERSION` in `ci.yaml` without checking which compiler actually runs.** The Linux
-job installs versioned packages from apt.llvm.org and then points `/usr/bin/clang++` at them with
-`update-alternatives`. Raising the version installs newer libc++ headers into the default include
-path, but if the alternatives switch does not take effect the build gets *new libc++ headers with an
-old clang* — which fails immediately in `<type_traits>` on `__builtin_clzg`, `__builtin_ctzg` and
-`__GCC_DESTRUCTIVE_SIZE`, preceded by the giveaway warning `"Libc++ only supports Clang 20 and
-later"`. Those errors are toolchain skew, not a code problem. Verify with `clang++ --version` and
-`clang++ -print-file-name=libc++.so` before concluding anything about a version bump.
+**clang 19 is the minimum supported compiler, and CI runs it deliberately** — Debian trixie's stock
+clang is 19, so that is what you get in WSL, and CI testing the floor is what keeps the two honest.
+Raise `LLVM_VERSION` only with a reason better than "a newer stdlib has the function I want".
+
+The floor is load-bearing in at least one place: libc++ did not implement floating-point
+`std::from_chars` until LLVM 20, so `UI/RuntimeConsole.hpp`'s `ParsedCommandValue::as<T>()` uses
+`strtod` for floating point and keeps integers on `from_chars`. A stdlib feature that libc++ has not
+caught up on fails as a deleted overload or a missing symbol, with no version diagnostic to point
+at — check libc++'s status page before relying on a recent `<charconv>`, `<format>` or `<ranges>`
+entry point.
+
+Also worth knowing: clang **20** specifically rejects sol2's member-variable bindings
+(`registry.bind<&C::member...>()`, `new_usertype`) with *"address of overloaded function 'call' does
+not match required type"*. clang 19 and 22 both accept them. If someone bumps the toolchain, 20 is
+the one version to skip.
+
+If a Linux-only compile error looks like it is inside `<type_traits>` — `__builtin_clzg`,
+`__builtin_ctzg`, `__GCC_DESTRUCTIVE_SIZE` — with the warning `"Libc++ only supports Clang 20 and
+later"`, that is toolchain skew, not code: new libc++ headers paired with an old clang because
+`update-alternatives --install` did not actually move `/usr/bin/clang++`. Check `clang++ --version`
+before believing anything else the log says.

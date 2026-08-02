@@ -61,11 +61,8 @@ else()
     add_link_options(-m64)
   endif()
   if(OX_COMPILER STREQUAL "clang")
-    check_cxx_compiler_flag("-fexperimental-library" OX_HAS_FEXPERIMENTAL_LIBRARY)
-    if(OX_HAS_FEXPERIMENTAL_LIBRARY)
-      add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fexperimental-library>)
-      add_link_options(-fexperimental-library)
-    endif()
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fexperimental-library>)
+    add_link_options(-fexperimental-library)
   endif()
 endif()
 
@@ -144,8 +141,7 @@ set(OX_OUTPUT_DIR "${OX_ARTIFACT_ROOT}/${OX_MODE}" CACHE INTERNAL "Oxylus artifa
 file(MAKE_DIRECTORY "${OX_OUTPUT_DIR}")
 
 set(_ox_stamp "${OX_OUTPUT_DIR}/.ox-toolchain")
-set(_ox_stamp_id
-  "${OX_COMPILER}-${CMAKE_CXX_COMPILER_VERSION}-${OX_CXX_RUNTIME}-${CMAKE_LINKER_TYPE}-${OX_FORCE_M64}-${OX_MARCH_NATIVE}")
+set(_ox_stamp_id "${OX_COMPILER}-${CMAKE_CXX_COMPILER_VERSION}-${OX_CXX_RUNTIME}")
 if(EXISTS "${_ox_stamp}")
   file(READ "${_ox_stamp}" _ox_stamp_prev)
   string(STRIP "${_ox_stamp_prev}" _ox_stamp_prev)
@@ -163,12 +159,7 @@ set(CMAKE_PDB_OUTPUT_DIRECTORY "${OX_OUTPUT_DIR}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
 function(_ox_add_supported_flags target scope)
-  set(_saved_required_flags "${CMAKE_REQUIRED_FLAGS}")
-  if(OX_COMPILER MATCHES "^clang")
-    set(CMAKE_REQUIRED_FLAGS "-Werror=unknown-warning-option -Werror=unused-command-line-argument")
-  else()
-    set(CMAKE_REQUIRED_FLAGS "-Werror")
-  endif()
+  set(CMAKE_REQUIRED_FLAGS "-Werror=unknown-warning-option -Werror=unused-command-line-argument")
   foreach(_flag IN LISTS ARGN)
     string(MAKE_C_IDENTIFIER "OX_HAS${_flag}" _var)
     check_cxx_compiler_flag("${_flag}" ${_var})
@@ -176,7 +167,6 @@ function(_ox_add_supported_flags target scope)
       target_compile_options(${target} ${scope} "${_flag}")
     endif()
   endforeach()
-  set(CMAKE_REQUIRED_FLAGS "${_saved_required_flags}")
 endfunction()
 
 add_library(ox_project_options INTERFACE)
@@ -201,12 +191,6 @@ _ox_add_supported_flags(ox_project_options INTERFACE
   -Wno-gnu-anonymous-struct
   -Wno-gnu-zero-variadic-macro-arguments
   -Wno-c2y-extensions)
-
-if(CMAKE_LINKER_TYPE AND CMAKE_VERSION VERSION_LESS 3.29)
-  message(WARNING
-    "ox: CMAKE_LINKER_TYPE=${CMAKE_LINKER_TYPE} needs CMake 3.29 or newer (running ${CMAKE_VERSION}); "
-    "it is being ignored and the default linker will be used.")
-endif()
 
 message(STATUS "ox: ${OX_COMPILER} ${CMAKE_CXX_COMPILER_VERSION} runtime=${OX_CXX_RUNTIME}")
 message(STATUS "ox: lua_bindings=${OX_LUA_BINDINGS} editor=${OX_EDITOR} tests=${OX_TESTS} "

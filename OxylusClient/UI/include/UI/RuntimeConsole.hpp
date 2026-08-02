@@ -1,7 +1,9 @@
 ﻿#pragma once
 
 #include <ankerl/unordered_dense.h>
+#include <cerrno>
 #include <charconv>
+#include <cstdlib>
 #include <functional>
 #include <imgui.h>
 
@@ -30,14 +32,24 @@ public:
           return false;
       }
 
-      T value{};
       const auto* begin = str_value.data();
       const auto* end = begin + str_value.size();
 
-      auto [ptr, ec] = std::from_chars(begin, end, value);
-
-      if (ec == std::errc{} && ptr == end) {
-        return value;
+      // libc++ only gained floating-point from_chars in LLVM 20; strtod covers every supported
+      // toolchain and the integral path stays on from_chars.
+      if constexpr (std::is_floating_point_v<T>) {
+        c8* parse_end = nullptr;
+        errno = 0;
+        const auto value = std::strtod(str_value.c_str(), &parse_end);
+        if (errno == 0 && parse_end == end) {
+          return static_cast<T>(value);
+        }
+      } else {
+        T value{};
+        auto [ptr, ec] = std::from_chars(begin, end, value);
+        if (ec == std::errc{} && ptr == end) {
+          return value;
+        }
       }
 
       return std::nullopt;
