@@ -9,7 +9,7 @@ on:
 
 env:
   VULKAN_VERSION: 1.4.309.0
-  LLVM_VERSION: 20
+  LLVM_VERSION: 22
   LLVM_WINDOWS_VERSION: 20.1.4
   LLVM_MACOS_VERSION: 22
   CPM_SOURCE_CACHE: ${{ github.workspace }}/.cpm-cache

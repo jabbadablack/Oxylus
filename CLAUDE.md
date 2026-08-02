@@ -638,3 +638,14 @@ preference:
 and release with `OX_TESTS=OFF` and `OX_MARCH_NATIVE=OFF`, using `cmake --preset` and
 `cmake --build --preset`. CPM sources are cached on a hash of `cmake/Dependencies.cmake`. It does
 **not** run tests, so verify tests locally.
+
+**Linux CI is pinned to LLVM 22, and that pin is load-bearing.** sol2's
+`upvalue_this_member_variable::call` is a static member function template of a class template carrying
+a conditional `noexcept(std::is_nothrow_copy_assignable_v<T>)`, and sol2 takes its address into a
+plain `lua_CFunction`. Whether a compiler accepts that is version-sensitive — sol2 has an open
+upstream issue for the same construct failing on some toolchains and not others, and upstream has not
+changed it. clang 20 rejects it with *"address of overloaded function 'call' does not match required
+type 'int (lua_State *)'"* on every `registry.bind<&C::member...>()` and `new_usertype` member
+binding; clang 22 and MSVC accept it. Do not drop the Linux toolchain below 22 to match some other
+constraint without checking `Scene/src/Components.cpp` and `Scripting/src/Lua*Bindings.cpp` still
+compile.
