@@ -180,9 +180,6 @@ auto RenderContext::create_context(this RenderContext& self, const Window& windo
 
   selector.add_required_extension(VK_KHR_SWAPCHAIN_EXTENSION_NAME)
     .add_required_extension(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME)
-#ifndef OX_PLATFORM_MACOSX
-    .add_required_extension(VK_EXT_SHADER_IMAGE_ATOMIC_INT64_EXTENSION_NAME)
-#endif
     .add_required_extension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME);
 
   if (auto phys_ret = selector.select(); !phys_ret) {
@@ -193,6 +190,8 @@ auto RenderContext::create_context(this RenderContext& self, const Window& windo
   }
 
   self.physical_device = self.vkbphysical_device.physical_device;
+  const bool has_image_atomic_int64 =
+    self.vkbphysical_device.enable_extension_if_present(VK_EXT_SHADER_IMAGE_ATOMIC_INT64_EXTENSION_NAME);
   vkb::DeviceBuilder device_builder{self.vkbphysical_device};
 
   VkPhysicalDeviceFeatures2 vk10_features{};
@@ -263,10 +262,11 @@ auto RenderContext::create_context(this RenderContext& self, const Window& windo
     .add_pNext(&vk13_features)
     .add_pNext(&vk12_features)
     .add_pNext(&vk11_features)
-#ifndef OX_PLATFORM_MACOSX
-    .add_pNext(&image_atomic_int64_features)
-#endif
     .add_pNext(&vk10_features);
+
+  if (has_image_atomic_int64) {
+    device_builder.add_pNext(&image_atomic_int64_features);
+  }
 
   auto dev_ret = device_builder.build();
   if (!dev_ret) {

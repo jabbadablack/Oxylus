@@ -1,5 +1,6 @@
 #include "Utils/Log.hpp"
 
+#include <csignal>
 #include <filesystem>
 #include <fmt/format.h>
 
@@ -14,6 +15,8 @@ void Log::init(int argc, char** argv) {
   loguru::g_preamble_date = false;
 
   loguru::init(argc, argv, {.verbosity_flag = nullptr});
+
+  std::signal(SIGTERM, SIG_DFL);
 
   // Named per executable. The client and the server run from the same directory, so a shared
   // "latest.log" opened with Truncate means whichever starts second wipes the other's log - and
